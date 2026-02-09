@@ -13,12 +13,26 @@ class Settings(BaseSettings):
 
     # PostgreSQL
     pg_host: str = "localhost"
-    pg_port: int = 5432
+    pg_port: int = 5433
     pg_database: str = "learning_assistant"
     pg_user: str = "postgres"
     pg_password: str = "postgres"
     pg_pool_min: int = 1
     pg_pool_max: int = 5
+
+    # Database backend
+    db_backend: str = "mcp"  # mcp | psycopg2
+
+    # MCP (pg-mcp-server)
+    mcp_server_command: str = "npx"
+    mcp_server_args: str = "--yes pg-mcp-server --transport stdio"
+    mcp_database_url: str = ""
+    mcp_allow_write_ops: bool = False
+    mcp_tool_name: str = "query"
+    mcp_query_key: str = "sql"
+    mcp_params_key: str = "params"
+    mcp_supports_params: bool = False
+    mcp_fallback_to_psycopg2: bool = True
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
