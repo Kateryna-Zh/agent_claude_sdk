@@ -1,0 +1,13 @@
+langgraph
+langchain
+langchain-community
+langchain-ollama
+langchain-chroma
+chromadb
+psycopg2-binary
+langchain-mcp-adapters
+tavily-python
+langchain-tavily
+fastapi
+uvicorn
+pydantic-settings
