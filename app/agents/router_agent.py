@@ -42,7 +42,19 @@ def router_node(state: GraphState) -> dict:
         retry_resp = llm.invoke(fix_prompt)
         return getattr(retry_resp, "content", str(retry_resp))
 
-    parsed = parse_with_retry(content, RouterOutput, _retry)
+    try:
+        parsed = parse_with_retry(content, RouterOutput, _retry)
+    except ValueError as exc:
+        logger.error("Router parse failed, falling back to defaults: %s", exc)
+        parsed = RouterOutput(
+            intent="EXPLAIN",
+            sub_intent=None,
+            needs_rag=False,
+            needs_web=False,
+            needs_db=False,
+            plan_title=None,
+            item_title=None,
+        )
     logger.info("Router parsed output: %s", parsed.model_dump())
 
     plan_confirmed = False

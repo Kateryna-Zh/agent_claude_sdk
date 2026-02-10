@@ -77,4 +77,7 @@ def parse_with_retry(raw: str, schema: Type[T], retry_fn) -> T:
                 extracted = _extract_json_object(corrected)
                 if extracted:
                     return parse_json_with_schema(_sanitize_invalid_escapes(extracted), schema)
-                return parse_json_with_schema(_sanitize_invalid_escapes(corrected), schema)
+                try:
+                    return parse_json_with_schema(_sanitize_invalid_escapes(corrected), schema)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("Unable to parse JSON after retries.") from exc

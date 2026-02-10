@@ -24,8 +24,11 @@ Intent definitions:
 
 Rules:
 - needs_rag = true when the answer likely exists in the local knowledge base.
-- needs_web = true when fresh, up-to-date information is required (LATEST).
+- The current KB focuses on: LangChain, LangGraph, Python interview topics, and useful links.
+- If the question is outside that scope, set needs_rag = false.
+- needs_web = false for now (web search is not enabled yet).
 - needs_db = true when historical user data (plans, quiz scores, progress) is needed.
+- If the user asks to analyze a KB file or mentions a KB filename, set needs_rag = true.
 - plan_title: Extract ONLY the plan name from the message, stripping action words like "list items for", "show me", etc. Set null if no plan is mentioned.
 - item_title: Extract ONLY the learning item/topic name when the user reports progress. Set null if not applicable.
 - If there is an existing plan draft and the user is confirming a save, set:
@@ -75,6 +78,14 @@ Output:
 User: "Create a plan to learn Ruby in 2 weeks"
 Output:
 {"intent":"PLAN","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":false,"plan_title":null,"item_title":null}
+
+User: "What are the main python topics for interview?"
+Output:
+{"intent":"EXPLAIN","sub_intent":null,"needs_rag":true,"needs_web":false,"needs_db":false,"plan_title":null,"item_title":null}
+
+User: "Analyze python_interview.md file and give answer"
+Output:
+{"intent":"EXPLAIN","sub_intent":null,"needs_rag":true,"needs_web":false,"needs_db":false,"plan_title":null,"item_title":null}
 
 User: "yes"
 Context: plan_draft_present = true

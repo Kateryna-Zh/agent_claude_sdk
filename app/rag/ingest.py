@@ -1,5 +1,12 @@
 """Ingest knowledge-base markdown files into ChromaDB."""
 
+from langchain_community.document_loaders import DirectoryLoader, TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
+
+from app.config import settings
+from app.llm.ollama_client import get_embeddings
+
 
 def load_and_chunk_documents(kb_dir: str) -> list:
     """Load all markdown files from *kb_dir* and split into chunks.
@@ -14,8 +21,19 @@ def load_and_chunk_documents(kb_dir: str) -> list:
     list[langchain_core.documents.Document]
         Chunked documents ready for embedding.
     """
-    # TODO: Use DirectoryLoader + RecursiveCharacterTextSplitter
-    pass
+    loader = DirectoryLoader(
+        kb_dir,
+        glob="**/*.md",
+        loader_cls=TextLoader,
+        loader_kwargs={"encoding": "utf-8"},
+        show_progress=True,
+    )
+    documents = loader.load()
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+    return splitter.split_documents(documents)
 
 
 def embed_and_store(documents: list) -> None:
@@ -26,8 +44,15 @@ def embed_and_store(documents: list) -> None:
     documents : list[Document]
         Pre-chunked documents to embed and store.
     """
-    # TODO: Use OllamaEmbeddings + Chroma.from_documents with persist_directory
-    pass
+    embeddings = get_embeddings()
+    chroma = Chroma.from_documents(
+        documents=documents,
+        embedding=embeddings,
+        persist_directory=settings.chroma_persist_dir,
+        collection_name=settings.chroma_collection,
+    )
+    if hasattr(chroma, "persist"):
+        chroma.persist()
 
 
 def ingest_kb() -> None:
@@ -35,5 +60,18 @@ def ingest_kb() -> None:
 
     Reads configuration from ``app.config.settings``.
     """
-    # TODO: Call load_and_chunk_documents then embed_and_store
-    pass
+    documents = load_and_chunk_documents(settings.kb_dir)
+    print(f"INGEST: loaded {len(documents)} chunks", flush=True)
+    if not documents:
+        return
+    embed_and_store(documents)
+    try:
+        chroma = Chroma(
+            collection_name=settings.chroma_collection,
+            persist_directory=settings.chroma_persist_dir,
+            embedding_function=get_embeddings(),
+        )
+        count = chroma._collection.count()  # type: ignore[attr-defined]
+        print(f"INGEST: collection '{settings.chroma_collection}' count={count}", flush=True)
+    except Exception:
+        print("INGEST: unable to read collection count", flush=True)
