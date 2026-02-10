@@ -20,13 +20,14 @@ Intent definitions:
 - QUIZ: User wants to be quizzed or tested.
 - LOG_PROGRESS: User reports completion of a topic or task.
 - REVIEW: User wants to review progress, weak areas, or flashcards.
-- LATEST: User asks about recent news, updates, or changes in a technology.
+- LATEST: User asks about recent news, trends, updates, or changes in a technology.
 
 Rules:
 - needs_rag = true when the answer likely exists in the local knowledge base.
 - The current KB focuses on: LangChain, LangGraph, Python interview topics, and useful links.
 - If the question is outside that scope, set needs_rag = false.
-- needs_web = false for now (web search is not enabled yet).
+- needs_web = true ONLY when the user asks for the latest news, trends, updates,
+  or recent changes about a topic. Otherwise set needs_web = false.
 - needs_db = true when historical user data (plans, quiz scores, progress) is needed.
 - If the user asks to analyze a KB file or mentions a KB filename, set needs_rag = true.
 - plan_title: Extract ONLY the plan name from the message, stripping action words like "list items for", "show me", etc. Set null if no plan is mentioned.

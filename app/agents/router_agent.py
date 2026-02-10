@@ -82,11 +82,15 @@ def router_node(state: GraphState) -> dict:
     if parsed.item_title:
         db_context["requested_item_title"] = parsed.item_title
 
+    needs_web = parsed.intent == "LATEST"
+    if parsed.intent == "LATEST":
+        parsed.needs_rag = False
+
     final = {
         "intent": parsed.intent,
         "sub_intent": parsed.sub_intent,
         "needs_rag": parsed.needs_rag,
-        "needs_web": parsed.needs_web,
+        "needs_web": needs_web,
         "needs_db": needs_db,
         "plan_confirmed": plan_confirmed,
         "db_context": db_context,
