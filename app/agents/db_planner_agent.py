@@ -1,4 +1,8 @@
-"""DB planner agent — produces a DB action plan."""
+"""DB planner agent — produces a DB action plan.
+
+TODO(deletion): This agent is not wired into the current graph. If it remains unused,
+remove this file and its prompt to reduce maintenance surface.
+"""
 
 from __future__ import annotations
 

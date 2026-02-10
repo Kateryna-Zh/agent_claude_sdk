@@ -1,4 +1,8 @@
-"""DB planner prompt template."""
+"""DB planner prompt template.
+
+TODO(deletion): This prompt is only used by db_planner_agent, which is not wired
+into the current graph. Remove if the agent stays unused.
+"""
 
 DB_PLANNER_SYSTEM_PROMPT = """\
 You are a DB planning assistant. Given the user request and current state,

@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS topics (
 CREATE TABLE IF NOT EXISTS study_plan (
     plan_id     SERIAL PRIMARY KEY,
     title       VARCHAR(255) NOT NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    status      VARCHAR(20) NOT NULL DEFAULT 'active'  -- 'pending' | 'in_progress' | 'done'
 );
 
 CREATE TABLE IF NOT EXISTS plan_items (

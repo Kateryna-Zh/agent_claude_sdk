@@ -24,6 +24,8 @@ Rules:
 - Do NOT claim the plan is saved.
 - user_response must include a Markdown plan summary (title + bullets).
 - Always end user_response with a confirmation question (e.g. "Want me to save this plan?")
+- If the user suggests changes (add/remove/replace items, change item count, refine scope), recreate the full plan draft accordingly.
+- When revising, keep the existing plan title unless the user explicitly asks to change it.
 - If a field is unknown, use null.
 - Use ISO dates (YYYY-MM-DD) or null.
 - Do not escape Markdown characters with backslashes.
@@ -32,6 +34,9 @@ Rules:
 
 PLANNER_USER_PROMPT = """\
 Learning goal: {user_input}
+
+Existing plan draft (if any):
+{plan_draft}
 
 Relevant context (optional):
 {db_context}

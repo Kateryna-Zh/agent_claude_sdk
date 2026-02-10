@@ -111,8 +111,8 @@ Routing logic:
 - `app/graph/routing.py` maps intent/flags to the next node.
 
 Execution path (simplified):
-- Router -> optional context tools (`retrieve_context`, `web_search`, `db_planner`) -> specialist agent -> `format_response`
-- DB reads/writes for plans and progress are centralized in `review_agent`.
+- Router -> optional context tools (`retrieve_context`, `web_search`) -> specialist agent -> `format_response`
+- DB reads/writes for plans and progress are handled by `db_agent` (tool-calling executor).
 
 ### Agents and Responsibilities
 
@@ -127,17 +127,12 @@ Planner agent:
 - Generates a plan draft with structured JSON validated by `app/schemas/planner.py`.
 - Returns a Markdown summary to the user and a structured `plan_draft` for saving.
 
-DB planner agent:
-- File: `app/agents/db_planner_agent.py`
-- Produces a structured DB action plan (`db_plan`) for LIST_PLANS, LIST_ITEMS, and LOG_PROGRESS.
-- Uses LLM extraction for plan titles and item titles to avoid token-based parsing.
-- Short-circuits DB planning for review and progress updates to avoid LLM timeouts.
-
-Review agent:
-- File: `app/agents/review_agent.py`
-- Executes DB actions through MCP or psycopg2, formats responses, and handles duplicates.
-- Resolves plan/item lookups by title (exact and contains) and uses created_at to disambiguate duplicates.
-- Updates item status by resolved item_id when user logs progress.
+DB agent (tool-calling executor):
+- File: `app/agents/db_agent.py`
+- Executes DB actions using native Ollama tool calling (with a fallback to `db_plan`).
+- Tools are defined in `app/tools/db_tools.py` and cover list/create/update operations.
+- Formats responses and handles duplicate titles using `created_at` for disambiguation.
+- Progress updates (`update_item_status`) are plan-scoped. If no plan is specified, the tool-calling model may guess a plan ID; if the item is not in that plan, the update returns `item_not_found`.
 
 Tutor, Quiz, Research agents:
 - Files: `app/agents/tutor_agent.py`, `app/agents/quiz_agent.py`, `app/agents/research_agent.py`
@@ -159,10 +154,9 @@ Schemas:
 ### MCP Integration in Agents
 
 MCP client usage:
-- `review_agent` uses `langchain_mcp_adapters` to open an MCP session and execute SQL tools.
+- `db_agent` uses repository backends (MCP or psycopg2) to execute tools.
 - MCP session parameters come from `.env` and `app/config.py`.
 
 DB execution flow:
 - Planner creates a draft.
-- On confirmation, DB planner emits `create_plan` and `add_plan_item` actions.
-- Review agent executes those actions and formats the response.
+- On confirmation, DB agent writes the plan (`create_plan` + `add_plan_item`) and formats the response.

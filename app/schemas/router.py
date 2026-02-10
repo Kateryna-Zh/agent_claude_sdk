@@ -12,6 +12,8 @@ class RouterOutput(BaseModel):
     needs_rag: bool = False
     needs_web: bool = False
     needs_db: bool = False
+    plan_title: str | None = None
+    item_title: str | None = None
 
 
 class GetPlans(BaseModel):

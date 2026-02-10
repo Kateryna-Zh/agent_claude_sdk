@@ -56,6 +56,12 @@ class MCPClient:
         self._query_key = query_key
         self._params_key = params_key
         self._supports_params = supports_params
+        # Capture the event loop where the MCP session lives so that
+        # sync callers from worker threads can schedule coroutines on it.
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
     def query(self, sql: str, params: list[Any] | None = None) -> Any:
         """Execute a query via MCP and return structured content if available."""
@@ -73,9 +79,14 @@ class MCPClient:
         return await self._session.call_tool(self._tool_name, tool_args)
 
     def _run_async(self, coro):
+        # If called from a worker thread (no running loop) but the session
+        # is tied to another loop, schedule the coroutine there.
         try:
             asyncio.get_running_loop()
         except RuntimeError:
+            if self._loop is not None and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+                return future.result()
             return asyncio.run(coro)
 
         raise RuntimeError(

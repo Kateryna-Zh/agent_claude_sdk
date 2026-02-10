@@ -17,19 +17,19 @@ class MCPRepository:
     def __init__(self, client: MCPClient) -> None:
         self._client = client
 
-    def create_session(self) -> int:
+    def create_session(self) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO sessions DEFAULT VALUES RETURNING session_id"
         )
-        return int(rows["session_id"])
+        return int(rows["session_id"]) if rows else None
 
-    def save_message(self, session_id: int, role: str, content: str) -> int:
+    def save_message(self, session_id: int, role: str, content: str) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO messages (session_id, role, content) VALUES (%s, %s, %s) "
             "RETURNING id",
             [session_id, role, content],
         )
-        return int(rows["id"])
+        return int(rows["id"]) if rows else None
 
     def get_messages(self, session_id: int) -> list[dict[str, Any]]:
         return self._fetch_all(
@@ -38,21 +38,21 @@ class MCPRepository:
             [session_id],
         )
 
-    def upsert_topic(self, name: str, tags: list[str] | None = None) -> int:
+    def upsert_topic(self, name: str, tags: list[str] | None = None) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO topics (name, tags) VALUES (%s, %s) "
             "ON CONFLICT (name) DO UPDATE SET tags = EXCLUDED.tags "
             "RETURNING topic_id",
             [name, tags],
         )
-        return int(rows["topic_id"])
+        return int(rows["topic_id"]) if rows else None
 
-    def create_plan(self, title: str) -> int:
+    def create_plan(self, title: str) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO study_plan (title) VALUES (%s) RETURNING plan_id",
             [title],
         )
-        return int(rows["plan_id"])
+        return int(rows["plan_id"]) if rows else None
 
     def add_plan_item(
         self,
@@ -61,13 +61,13 @@ class MCPRepository:
         topic_id: int | None = None,
         due_date: str | None = None,
         notes: str | None = None,
-    ) -> int:
+    ) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO plan_items (plan_id, topic_id, title, due_date, notes) "
             "VALUES (%s, %s, %s, %s, %s) RETURNING item_id",
             [plan_id, topic_id, title, due_date, notes],
         )
-        return int(rows["item_id"])
+        return int(rows["item_id"]) if rows else None
 
     def update_plan_item_status(self, item_id: int, status: str) -> None:
         self._execute(
@@ -89,13 +89,13 @@ class MCPRepository:
         user_answer: str | None,
         score: float | None,
         feedback: str | None,
-    ) -> int:
+    ) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO quiz_attempts (topic_id, question, user_answer, score, feedback) "
             "VALUES (%s, %s, %s, %s, %s) RETURNING attempt_id",
             [topic_id, question, user_answer, score, feedback],
         )
-        return int(rows["attempt_id"])
+        return int(rows["attempt_id"]) if rows else None
 
     def get_weak_topics(self, limit: int = 5) -> list[dict[str, Any]]:
         return self._fetch_all(
@@ -106,13 +106,13 @@ class MCPRepository:
             [limit],
         )
 
-    def create_flashcard(self, topic_id: int | None, front: str, back: str) -> int:
+    def create_flashcard(self, topic_id: int | None, front: str, back: str) -> int | None:
         rows = self._fetch_one(
             "INSERT INTO flashcards (topic_id, front, back) VALUES (%s, %s, %s) "
             "RETURNING card_id",
             [topic_id, front, back],
         )
-        return int(rows["card_id"])
+        return int(rows["card_id"]) if rows else None
 
     def get_due_flashcards(self, limit: int = 10) -> list[dict[str, Any]]:
         return self._fetch_all(

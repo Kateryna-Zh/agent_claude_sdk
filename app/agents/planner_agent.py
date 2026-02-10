@@ -36,6 +36,7 @@ def planner_node(state: GraphState) -> dict:
     db_context = state.get("db_context") or {}
     prompt = PLANNER_SYSTEM_PROMPT + "\n\n" + PLANNER_USER_PROMPT.format(
         user_input=state.get("user_input", ""),
+        plan_draft=json.dumps(state.get("plan_draft") or {}, ensure_ascii=False),
         db_context=json.dumps(db_context, ensure_ascii=False),
     )
 

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "nomic-embed-text"
     ollama_timeout_seconds: int = 30
     chat_timeout_seconds: int = 15
+    db_tool_timeout_seconds: int = 4
 
     # PostgreSQL
     pg_host: str = "localhost"

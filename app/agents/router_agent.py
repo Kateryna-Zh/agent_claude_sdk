@@ -32,11 +32,11 @@ def router_node(state: GraphState) -> dict:
     def _retry(raw: str) -> str:
         fix_prompt = (
             "Fix the JSON to match this exact schema and keys. Output ONLY JSON.\n"
-            "Required keys: intent, sub_intent, needs_rag, needs_web, needs_db.\n"
+            "Required keys: intent, sub_intent, needs_rag, needs_web, needs_db, plan_title, item_title.\n"
             "Use ONLY these keys; do not use needs_localKnowledge or other variants.\n"
             'Valid intents: "PLAN","EXPLAIN","QUIZ","LOG_PROGRESS","REVIEW","LATEST".\n'
             "Schema example:\n"
-            '{"intent":"REVIEW","sub_intent":"LIST_PLANS","needs_rag":false,"needs_web":false,"needs_db":true}\n'
+            '{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}\n'
             f"Raw: {raw}"
         )
         retry_resp = llm.invoke(fix_prompt)
@@ -58,19 +58,17 @@ def router_node(state: GraphState) -> dict:
         plan_confirmed = True
         needs_db = True
     elif parsed.intent == "PLAN":
-        clarified = _clarify_plan_intent(llm, user_input)
-        if clarified == "LIST_ITEMS":
-            parsed.intent = "REVIEW"
-            parsed.sub_intent = "LIST_ITEMS"
-            needs_db = True
-        elif clarified == "LIST_PLANS":
-            parsed.intent = "REVIEW"
-            parsed.sub_intent = "LIST_PLANS"
-            needs_db = True
-        elif clarified == "CREATE":
-            needs_db = False
+        # Do not hit DB for new plan drafts until user confirms saving.
+        needs_db = False
     elif parsed.intent in {"REVIEW", "LOG_PROGRESS"}:
         needs_db = True
+
+    # Populate db_context with extracted titles so downstream nodes can use them.
+    db_context = state.get("db_context") or {}
+    if parsed.plan_title:
+        db_context["requested_plan_title"] = parsed.plan_title
+    if parsed.item_title:
+        db_context["requested_item_title"] = parsed.item_title
 
     final = {
         "intent": parsed.intent,
@@ -79,17 +77,7 @@ def router_node(state: GraphState) -> dict:
         "needs_web": parsed.needs_web,
         "needs_db": needs_db,
         "plan_confirmed": plan_confirmed,
+        "db_context": db_context,
     }
     logger.info("Router final output: %s", final)
     return final
-
-
-def _clarify_plan_intent(llm, user_input: str) -> str:
-    prompt = (
-        "You classify if the user wants to CREATE a new plan or VIEW existing plans.\n"
-        "Return ONLY one token: CREATE, LIST_PLANS, LIST_ITEMS, or OTHER.\n"
-        f"User message: {user_input}"
-    )
-    response = llm.invoke(prompt)
-    content = getattr(response, "content", str(response))
-    return content.strip().upper()
