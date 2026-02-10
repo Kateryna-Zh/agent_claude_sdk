@@ -17,7 +17,5 @@ def format_response_node(state: GraphState) -> dict:
     dict
         Partial state update with ``final_response``.
     """
-    # TODO: Take state["specialist_output"] and format it nicely
-    # TODO: Optionally add session metadata, citations, etc.
-    # TODO: Return {"final_response": formatted_text}
-    pass
+    response = state.get("user_response") or state.get("specialist_output") or ""
+    return {"final_response": response}

@@ -131,6 +131,14 @@ def get_latest_plan_id() -> int | None:
     return int(row["plan_id"]) if row else None
 
 
+def get_plans() -> list[dict[str, Any]]:
+    """Fetch all study plans."""
+    return _execute(
+        "SELECT plan_id, title, created_at FROM study_plan ORDER BY created_at DESC",
+        fetch="all",
+    )
+
+
 # --------------- quiz_attempts ---------------
 
 def save_quiz_attempt(

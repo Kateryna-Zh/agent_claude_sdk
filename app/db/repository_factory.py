@@ -42,6 +42,9 @@ class PsycopgRepository:
     def get_latest_plan_id(self):
         return psycopg_repo.get_latest_plan_id()
 
+    def get_plans(self):
+        return psycopg_repo.get_plans()
+
     def save_quiz_attempt(self, topic_id, question, user_answer, score, feedback) -> int:
         return psycopg_repo.save_quiz_attempt(topic_id, question, user_answer, score, feedback)
 

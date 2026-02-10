@@ -6,7 +6,7 @@ from app.models.state import GraphState
 def route_after_router(state: GraphState) -> str:
     """Decide the next node after the router based on routing flags.
 
-    Returns one of: 'retrieve_context', 'web_search', 'db_read', 'specialist'.
+    Returns one of: 'retrieve_context', 'web_search', 'db_planner', 'specialist'.
 
     Parameters
     ----------
@@ -17,9 +17,13 @@ def route_after_router(state: GraphState) -> str:
     str
         The name of the next node.
     """
-    # TODO: Check needs_rag, needs_web, needs_db flags
-    # TODO: Prioritise: rag > web > db > specialist
-    pass
+    if state.get("needs_db"):
+        return "db_planner"
+    if state.get("needs_rag"):
+        return "retrieve_context"
+    if state.get("needs_web"):
+        return "web_search"
+    return route_to_specialist(state)
 
 
 def route_to_specialist(state: GraphState) -> str:
@@ -36,9 +40,20 @@ def route_to_specialist(state: GraphState) -> str:
     str
         The name of the specialist node.
     """
-    # TODO: Map intent to specialist node name
-    # TODO: PLAN → 'planner', EXPLAIN → 'tutor', QUIZ → 'quiz', LATEST → 'research'
-    pass
+    intent = state.get("intent")
+    if intent == "PLAN":
+        if state.get("sub_intent") == "SAVE_PLAN":
+            return "review"
+        return "planner"
+    if intent == "QUIZ":
+        return "quiz"
+    if intent == "LATEST":
+        return "research"
+    if intent == "REVIEW":
+        return "review"
+    if intent == "LOG_PROGRESS":
+        return "review"
+    return "tutor"
 
 
 def route_after_specialist(state: GraphState) -> str:
@@ -55,6 +70,10 @@ def route_after_specialist(state: GraphState) -> str:
     str
         The name of the next node.
     """
-    # TODO: Write to DB for PLAN, QUIZ, LOG_PROGRESS intents
-    # TODO: Otherwise skip to format_response
-    pass
+    if state.get("intent") == "PLAN":
+        return "format_response"
+    if state.get("intent") in {"QUIZ"}:
+        return "db_write"
+    if state.get("intent") in {"REVIEW", "LOG_PROGRESS"}:
+        return "format_response"
+    return "format_response"

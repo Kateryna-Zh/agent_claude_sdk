@@ -1,0 +1,155 @@
+no-auth, single-user design you can implement locally with LangGraph + Ollama + Postgres + RAG + Web search.
+
+What the app does
+
+One endpoint /chat. You talk to it like:
+
+“Make me a 2-week plan to learn LangGraph”
+
+“Quiz me on decorators”
+
+“Track my progress: I finished topic X”
+
+“What changed recently in LangChain?”
+It uses:
+
+RAG for your saved notes/docs
+
+Web search for “latest”
+
+Postgres to store plan, progress, quiz results, mistakes, flashcards
+
+Agents (keep it to 5)
+1) Router Agent (traffic controller)
+
+Job: decide what the user wants and which agents to call.
+Outputs a structured decision like:
+
+intent = PLAN | EXPLAIN | QUIZ | LOG_PROGRESS | REVIEW | LATEST
+
+needs_rag = true/false
+
+needs_web = true/false
+
+needs_db = true/false
+
+2) Planner Agent
+
+Job: generate study plan + tasks + milestones.
+Writes plan to DB. Can update plan based on progress.
+
+3) Tutor (RAG) Agent
+
+Job: answer using your local knowledge base (notes/PDFs/markdown).
+When confident, cite source filenames (even without perfect citations).
+
+4) Quiz Agent
+
+Job: generate questions, evaluate answers, and store mistakes/weak areas.
+Supports modes: quick quiz (5 Q), interview drill, spaced repetition.
+
+5) Research Agent (Web)
+
+Job: web search and summarize “what’s new / best practices / changes”
+Then store useful findings as “materials” in DB (optional, but cool).
+
+Postgres schema (minimal)
+
+You can start with just these tables:
+
+sessions(session_id, started_at)
+
+messages(id, session_id, role, content, created_at)
+
+topics(topic_id, name, tags)
+
+study_plan(plan_id, title, created_at)
+
+plan_items(item_id, plan_id, topic_id, title, status, due_date, notes)
+
+quiz_attempts(attempt_id, topic_id, question, user_answer, score, feedback, created_at)
+
+flashcards(card_id, topic_id, front, back, last_seen, ease_factor, next_review_at)
+
+This is enough to show “memory” and real value.
+
+RAG knowledge base (keep it simple)
+
+Folder like:
+
+kb/
+  langchain.md
+  langgraph.md
+  python_interview.md
+  links.md
+
+
+Ingestion pipeline:
+
+chunk files → embed → store vectors
+
+easiest: use ChromaDB
+
+LangGraph orchestration (simple flow)
+
+Graph nodes:
+
+router
+
+optional retrieve_context (RAG)
+
+optional web_search
+
+optional db_read
+
+specialist_agent (planner/tutor/quiz/research)
+
+optional db_write
+
+final_response
+
+Key rule: only one specialist agent per turn unless needed.
+
+Example conversation flows
+A) “Make me a plan”
+
+Router → Planner → DB write → response (plan + next 3 actions)
+
+B) “Explain X”
+
+Router (EXPLAIN) → RAG retrieve → Tutor → response
+
+C) “Quiz me”
+
+Router (QUIZ) → DB read (weak topics) → Quiz Agent → DB write attempt → response
+
+D) “What’s new in LangChain?”
+
+Router (LATEST) → Web agent → optional save summary to DB → response
+
+E) “I finished topic X”
+
+Router (LOG_PROGRESS) → DB update → response (congrats + next step)
+
+MVP scope (buildable fast)
+
+✅ one FastAPI endpoint
+✅ one LangGraph graph
+✅ Postgres (messages, plan_items, quiz_attempts)
+✅ RAG over local markdown
+✅ basic web search tool
+✅ Ollama local model
+
+write you (start with skeleton):
+
+DB DDL (Postgres)
+
+RAG (Chroma DB)
+
+LangGraph graph skeleton (router + nodes)
+
+Prompt templates for each agent (short + robust)
+
+FastAPI POST /chat minimal runnable example for Ollama
+
+Create project skeleton with all files needed.

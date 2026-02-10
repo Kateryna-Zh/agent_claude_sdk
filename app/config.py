@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
     ollama_embed_model: str = "nomic-embed-text"
+    ollama_timeout_seconds: int = 30
+    chat_timeout_seconds: int = 15
 
     # PostgreSQL
     pg_host: str = "localhost"

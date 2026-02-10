@@ -138,6 +138,11 @@ class MCPRepository:
         )
         return int(rows["plan_id"]) if rows else None
 
+    def get_plans(self) -> list[dict[str, Any]]:
+        return self._fetch_all(
+            "SELECT plan_id, title, created_at FROM study_plan ORDER BY created_at DESC"
+        )
+
     def _execute(self, sql: str, params: list[Any] | None = None) -> Any:
         params = params or []
         if params and not settings.mcp_supports_params:

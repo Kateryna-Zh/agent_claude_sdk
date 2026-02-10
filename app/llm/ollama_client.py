@@ -1,5 +1,9 @@
 """Factories for Ollama-backed LLM and embeddings."""
 
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+
+from app.config import settings
+
 
 def get_chat_model():
     """Return a ChatOllama instance configured from settings.
@@ -9,8 +13,11 @@ def get_chat_model():
     langchain_ollama.ChatOllama
         A chat model connected to the local Ollama server.
     """
-    # TODO: Return ChatOllama(base_url=settings.ollama_base_url, model=settings.ollama_model)
-    pass
+    return ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_model,
+        request_timeout=settings.ollama_timeout_seconds,
+    )
 
 
 def get_embeddings():
@@ -21,5 +28,7 @@ def get_embeddings():
     langchain_ollama.OllamaEmbeddings
         An embedding model for vectorising documents and queries.
     """
-    # TODO: Return OllamaEmbeddings(base_url=settings.ollama_base_url, model=settings.ollama_embed_model)
-    pass
+    return OllamaEmbeddings(
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_embed_model,
+    )
