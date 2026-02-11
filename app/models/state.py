@@ -50,6 +50,8 @@ class GraphState(TypedDict):
         Draft study plan pending user confirmation.
     plan_confirmed : bool
         Whether the user has confirmed saving the draft plan.
+    quiz_state : dict[str, Any] | None
+        Cached quiz payload with questions and answer key for evaluation.
     """
 
     messages: Annotated[list[BaseMessage], add_messages]
@@ -71,3 +73,4 @@ class GraphState(TypedDict):
     session_id: int | None
     plan_draft: dict[str, Any] | None
     plan_confirmed: bool
+    quiz_state: dict[str, Any] | None

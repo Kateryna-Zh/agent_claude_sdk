@@ -1,5 +1,7 @@
 """Tutor agent node — RAG-grounded explanations."""
 
+import logging
+
 from app.llm.ollama_client import get_chat_model
 from app.prompts.tutor import (
     TUTOR_SYSTEM_PROMPT,
@@ -7,6 +9,8 @@ from app.prompts.tutor import (
     GENERAL_TUTOR_SYSTEM_PROMPT,
 )
 from app.models.state import GraphState
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def tutor_node(state: GraphState) -> dict:
@@ -23,7 +27,7 @@ def tutor_node(state: GraphState) -> dict:
     dict
         Partial state update with ``specialist_output``.
     """
-    print("TUTOR HIT", flush=True)
+    logger.info("TUTOR HIT")
     rag_context = state.get("rag_context", "")
     user_input = state.get("user_input", "")
     if rag_context.strip():

@@ -4,12 +4,15 @@ QUIZ_GENERATE_SYSTEM_PROMPT = """\
 You are a quiz master. Generate a quiz based on the user's request.
 
 Modes:
-- quick: 5 multiple-choice questions.
-- interview: Open-ended conceptual questions.
-- review: Focus on the user's weakest topics (provided in context).
+- quick: multiple-choice questions only.
+- interview: open-ended conceptual questions (not used when quick is requested).
+- review: focus on the user's weakest topics (provided in context).
 
 Output each question as a numbered list. For multiple-choice, include
-options A-D. After all questions, include an answer key.
+options A-D. Do NOT include any open-ended questions in quick mode.
+After all questions, include an answer key in this exact format and matching
+the number of questions:
+Answer key: 1:A, 2:B
 """
 
 QUIZ_GENERATE_USER_PROMPT = """\

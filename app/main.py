@@ -49,6 +49,7 @@ def chat(request: ChatRequest):
     last_state = _SESSION_CACHE.get(session_id, {})
     last_intent = last_state.get("last_intent")
     last_db_context = last_state.get("last_db_context")
+    last_quiz_state = last_state.get("quiz_state")
 
     state_input = {
         "messages": [],
@@ -66,6 +67,7 @@ def chat(request: ChatRequest):
         "session_id": session_id,
         "plan_draft": plan_draft,
         "plan_confirmed": False,
+        "quiz_state": last_quiz_state,
         "last_intent": last_intent,
         "last_db_context": last_db_context,
         "sub_intent": "",
@@ -102,6 +104,7 @@ def chat(request: ChatRequest):
     _SESSION_CACHE[session_id] = {
         "last_intent": result.get("intent", last_intent),
         "last_db_context": result.get("db_context", last_db_context),
+        "quiz_state": result.get("quiz_state", last_quiz_state),
     }
 
     return ChatResponse(session_id=session_id, reply=reply)

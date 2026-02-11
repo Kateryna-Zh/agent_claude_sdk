@@ -1,6 +1,7 @@
 """Router agent node — classifies user intent and sets routing flags."""
 
 import logging
+import re
 
 from app.llm.ollama_client import get_chat_model
 from app.models.state import GraphState
@@ -17,6 +18,19 @@ def router_node(state: GraphState) -> dict:
     Populates: intent, needs_rag, needs_web, needs_db.
     """
     user_input = state.get("user_input", "")
+    # Fast-path: if we have a pending quiz and the user answered with numbered choices,
+    # skip LLM routing and go straight to QUIZ evaluation.
+    quiz_state = state.get("quiz_state") or {}
+    if quiz_state and re.search(r"\b\d+\s*[\).:-]?\s*[A-D]\b", user_input, flags=re.IGNORECASE):
+        return {
+            "intent": "QUIZ",
+            "sub_intent": None,
+            "needs_rag": False,
+            "needs_web": False,
+            "needs_db": False,
+            "plan_confirmed": False,
+            "db_context": state.get("db_context") or {},
+        }
     plan_draft_present = bool(state.get("plan_draft"))
     prompt = ROUTER_SYSTEM_PROMPT + "\n\n" + ROUTER_USER_PROMPT.format(
         user_input=user_input,
