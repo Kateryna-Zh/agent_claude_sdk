@@ -64,9 +64,11 @@ def build_graph():
     )
 
     # --- Context nodes → specialist ---
+    # do we really need to route again after context nodes? We use retrived context only for tutor for now
     graph.add_conditional_edges("retrieve_context", route_to_specialist,
                                 {"planner": "planner", "tutor": "tutor",
                                  "quiz": "quiz", "research": "research", "db": "db"})
+    # for now web search results are used only for research agent
     graph.add_conditional_edges("web_search", route_to_specialist,
                                 {"planner": "planner", "tutor": "tutor",
                                  "quiz": "quiz", "research": "research", "db": "db"})

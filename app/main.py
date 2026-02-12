@@ -42,6 +42,7 @@ def chat(request: ChatRequest):
     print("CHAT: building state", flush=True)
     if settings.db_backend.lower() == "mcp":
         session_id = request.session_id or next(_SESSION_COUNTER)
+        print(f"CHAT use mcp: using session_id={session_id}", flush=True)
     else:
         repo = get_repository()
         session_id = request.session_id or repo.create_session()

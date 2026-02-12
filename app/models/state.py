@@ -53,7 +53,8 @@ class GraphState(TypedDict):
     quiz_state : dict[str, Any] | None
         Cached quiz payload with questions and answer key for evaluation.
     """
-
+    #Annotated fields allow us to apply the add_messages reducer to the messages field, 
+    # so that all nodes receive the full conversation history without needing to manage it themselves.
     messages: Annotated[list[BaseMessage], add_messages]
     user_input: str
     intent: str

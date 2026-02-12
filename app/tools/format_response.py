@@ -17,5 +17,6 @@ def format_response_node(state: GraphState) -> dict:
     dict
         Partial state update with ``final_response``.
     """
+    # implement different formatting logic if needed, e.g. based on intent or specialist type
     response = state.get("user_response") or state.get("specialist_output") or ""
     return {"final_response": response}

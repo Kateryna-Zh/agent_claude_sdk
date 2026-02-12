@@ -20,10 +20,9 @@ def db_agent_node(state: GraphState) -> dict:
     intent = state.get("intent")
     sub_intent = state.get("sub_intent")
     if intent == "REVIEW" and sub_intent in {"LIST_PLANS", "LIST_ITEMS"}:
-        if sub_intent == "LIST_PLANS":
-            _reset_plan_item_context(db_context)
         tool_calls = []
         if sub_intent == "LIST_PLANS":
+            _reset_plan_item_context(db_context)
             tool_calls.append({"name": "list_plans", "arguments": {}})
         else:
             plan_title = db_context.get("requested_plan_title") or state.get("user_input")
