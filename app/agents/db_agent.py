@@ -4,21 +4,34 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from app.models.state import GraphState
 from app.llm.ollama_client import get_chat_model
+from app.db.repository_factory import get_repository
 from app.tools.db_tools import execute_tool, get_langchain_tools
 
 logger = logging.getLogger("uvicorn.error")
 
-
+#TODO: needs refactoring!
 def db_agent_node(state: GraphState) -> dict:
     """Execute DB actions using tool-calling or db_plan fallback."""
     db_context = state.get("db_context") or {}
 
     intent = state.get("intent")
     sub_intent = state.get("sub_intent")
+
+    # --- QUIZ intent: pre-fetch or post-save ---
+    if intent == "QUIZ":
+        quiz_save = db_context.get("quiz_save")
+        if quiz_save:
+            # Post-quiz: save wrong answers & delete correct retries
+            return _handle_quiz_post_save(db_context, quiz_save)
+        else:
+            # Pre-quiz: fetch wrong questions for topic
+            return _handle_quiz_pre_fetch(state, db_context)
+
     if intent == "REVIEW" and sub_intent in {"LIST_PLANS", "LIST_ITEMS"}:
         tool_calls = []
         if sub_intent == "LIST_PLANS":
@@ -274,3 +287,68 @@ def _reset_plan_item_context(db_context: dict[str, Any]) -> None:
     db_context.pop("requested_plan_id", None)
     db_context.pop("requested_items", None)
     db_context.pop("plan_items", None)
+
+
+def _extract_topic_name(user_input: str) -> str:
+    """Strip common quiz prefixes to get the topic name."""
+    cleaned = re.sub(
+        r'^(quiz|test|examine)\s+(me\s+)?(on|about)\s+',
+        '', user_input, flags=re.IGNORECASE,
+    ).strip()
+    return cleaned or user_input
+
+
+def _handle_quiz_pre_fetch(state: GraphState, db_context: dict[str, Any]) -> dict:
+    """Pre-quiz: extract topic, upsert it, fetch previously-wrong questions."""
+    user_input = (state.get("user_input") or "").strip()
+    topic_name = _extract_topic_name(user_input)
+    repo = get_repository()
+    try:
+        topic_id = repo.upsert_topic(topic_name)
+        wrong_questions = repo.get_wrong_questions(topic_id) if topic_id else []
+    except Exception as exc:
+        logger.warning("Quiz pre-fetch DB error: %s", exc)
+        topic_id = None
+        wrong_questions = []
+
+    db_context["wrong_questions"] = wrong_questions
+    db_context["quiz_topic_id"] = topic_id
+    db_context["quiz_topic_name"] = topic_name
+    logger.info(
+        "Quiz pre-fetch: topic=%s id=%s wrong_questions=%d",
+        topic_name, topic_id, len(wrong_questions),
+    )
+    return {"db_context": db_context}
+
+
+def _handle_quiz_post_save(db_context: dict[str, Any], quiz_save: dict[str, Any]) -> dict:
+    """Post-quiz: persist wrong answers and remove correct retries."""
+    db_context.pop("quiz_save", None)
+    topic_id = quiz_save.get("topic_id")
+    wrong_answers = quiz_save.get("wrong_answers") or []
+    correct_retries = quiz_save.get("correct_retries") or []
+    repo = get_repository()
+
+    for entry in wrong_answers:
+        try:
+            repo.save_quiz_attempt(
+                topic_id=topic_id,
+                question=entry.get("question", ""),
+                user_answer=entry.get("user_answer"),
+                score=0.0,
+                feedback=None,
+            )
+        except Exception as exc:
+            logger.warning("Failed to save wrong answer: %s", exc)
+
+    for attempt_id in correct_retries:
+        try:
+            repo.delete_quiz_attempt(attempt_id)
+        except Exception as exc:
+            logger.warning("Failed to delete correct retry %s: %s", attempt_id, exc)
+
+    logger.info(
+        "Quiz post-save: saved %d wrong, deleted %d correct retries",
+        len(wrong_answers), len(correct_retries),
+    )
+    return {"quiz_results_saved": True, "db_context": db_context}

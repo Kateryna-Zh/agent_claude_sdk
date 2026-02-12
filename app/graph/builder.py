@@ -15,6 +15,8 @@ from app.tools.format_response import format_response_node
 from app.graph.routing import (
     route_after_router,
     route_to_specialist,
+    route_after_db,
+    route_after_quiz,
 )
 
 
@@ -72,13 +74,21 @@ def build_graph():
     graph.add_conditional_edges("web_search", route_to_specialist,
                                 {"planner": "planner", "tutor": "tutor",
                                  "quiz": "quiz", "research": "research", "db": "db"})
+    graph.add_conditional_edges("db", route_after_db, {
+                                "retrieve_context": "retrieve_context",
+                                "quiz": "quiz",
+                                "format_response": "format_response",
+                                })
+
+    graph.add_conditional_edges("quiz", route_after_quiz, {
+                                    "db": "db",
+                                    "format_response": "format_response",
+                                })
 
     # --- Specialist → format_response ---
     graph.add_edge("planner", "format_response")
     graph.add_edge("tutor", "format_response")
-    graph.add_edge("quiz", "format_response")
     graph.add_edge("research", "format_response")
-    graph.add_edge("db", "format_response")
 
     # --- format_response → END ---
     graph.add_edge("format_response", END)

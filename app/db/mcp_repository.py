@@ -142,6 +142,18 @@ class MCPRepository:
         return self._fetch_all(
             "SELECT plan_id, title, created_at FROM study_plan ORDER BY created_at DESC"
         )
+    
+    def get_wrong_questions(self, topic_id: int) -> list[dict]:
+         return self._fetch_all(
+             "SELECT attempt_id, question FROM quiz_attempts WHERE topic_id = %s",
+             [topic_id],
+         )
+
+    def delete_quiz_attempt(self, attempt_id: int) -> None:
+        self._execute(
+            "DELETE FROM quiz_attempts WHERE attempt_id = %s",
+            [attempt_id],
+        )
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> Any:
         params = params or []

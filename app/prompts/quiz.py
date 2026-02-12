@@ -7,6 +7,12 @@ IMPORTANT: The user's topic is the primary directive. If knowledge base context
 is provided but does NOT match the requested topic, IGNORE it entirely and
 generate questions about the requested topic using your own knowledge.
 
+When knowledge base context is provided and matches the topic, base your
+questions on that content.
+
+When previously wrong questions are provided, you MUST re-include them
+in the quiz (rephrase slightly if desired, but keep the same concept).
+
 Modes:
 - quick: multiple-choice questions only.
 - interview: open-ended conceptual questions (not used when quick is requested).
@@ -21,11 +27,14 @@ Answer key: 1:A, 2:B
 
 
 QUIZ_GENERATE_USER_PROMPT = """\
- Topic: {user_input}
+Topic: {user_input}
 
- Knowledge base context:
- {rag_context}
- """
+Knowledge base context:
+{rag_context}
+
+Previously wrong questions (must include in quiz):
+{wrong_questions}
+"""
 
 QUIZ_EVALUATE_SYSTEM_PROMPT = """\
 You are evaluating a quiz answer. Given the question, the correct answer,

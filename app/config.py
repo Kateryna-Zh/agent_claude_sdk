@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ollama_embed_model: str = "nomic-embed-text"
     ollama_timeout_seconds: int = 30
-    chat_timeout_seconds: int = 15
+    chat_timeout_seconds: int = 30
     db_tool_timeout_seconds: int = 4
 
     # PostgreSQL

@@ -72,11 +72,31 @@ def quiz_node(state: GraphState) -> dict:
             )
         lines.append("Answer key: " + _format_answer_key(answer_key))
         content = "\n".join(lines).strip()
-        return {"user_response": content, "specialist_output": content, "quiz_state": None}
+
+        # Build quiz_save payload for db_agent
+        quiz_save = _build_quiz_save(
+            quiz_state, answer_key, user_answers,
+        )
+        if quiz_save:
+            db_context["quiz_save"] = quiz_save
+
+        return {
+            "user_response": content,
+            "specialist_output": content,
+            "quiz_state": None,
+            "db_context": db_context,
+        }
+
+    # Format wrong questions from db_context for the prompt
+    wrong_questions_raw = db_context.get("wrong_questions") or []
+    wrong_questions_text = _format_wrong_questions(wrong_questions_raw)
+    topic_id = db_context.get("quiz_topic_id")
+    topic_name = db_context.get("quiz_topic_name")
 
     prompt = QUIZ_GENERATE_SYSTEM_PROMPT + "\n\n" + QUIZ_GENERATE_USER_PROMPT.format(
         user_input=user_input,
         rag_context=rag_context,
+        wrong_questions=wrong_questions_text,
     )
     llm = get_chat_model()
     logger.info("Quiz generation LLM call started")
@@ -91,10 +111,17 @@ def quiz_node(state: GraphState) -> dict:
         content, generated_answer_key = _retry_regenerate_mcq_only(llm, user_input, question_count, rag_context)
         question_count = _count_questions(content)
     display_text = _strip_answer_key(content)
+
+    # Track which generated questions correspond to retry attempt_ids
+    retry_attempt_ids = _match_retry_questions(display_text, wrong_questions_raw)
+
     quiz_state_update = {
         "answer_key": generated_answer_key,
         "quiz_text": display_text,
         "question_count": question_count,
+        "topic_id": topic_id,
+        "topic_name": topic_name,
+        "retry_attempt_ids": retry_attempt_ids,
     }
     return {"user_response": display_text, "specialist_output": display_text, "quiz_state": quiz_state_update}
 
@@ -260,3 +287,108 @@ def _count_questions(text: str) -> int:
     for match in re.finditer(r"^\s*(\d+)\s*[\).]", text, flags=re.MULTILINE):
         numbers.add(int(match.group(1)))
     return len(numbers)
+
+
+def _extract_questions(text: str) -> dict[int, str]:
+    """Parse quiz text into {question_number: question_text} dict."""
+    questions: dict[int, str] = {}
+    pattern = re.compile(r"^\s*(\d+)\s*[\).]\s*(.+)", re.MULTILINE)
+    for match in pattern.finditer(text):
+        number = int(match.group(1))
+        question_text = match.group(2).strip()
+        # Only capture the question line (before options A-D)
+        if not re.match(r"^[A-D][\).:]", question_text, re.IGNORECASE):
+            questions[number] = question_text
+    return questions
+
+
+def _format_wrong_questions(wrong_questions: list[dict[str, Any]]) -> str:
+    """Format wrong questions from DB into numbered text for the prompt."""
+    if not wrong_questions:
+        return "None"
+    lines = []
+    for i, wq in enumerate(wrong_questions, 1):
+        lines.append(f"{i}. {wq.get('question', '')}")
+    return "\n".join(lines)
+
+
+def _match_retry_questions(
+    quiz_text: str, wrong_questions: list[dict[str, Any]],
+) -> dict[int, int]:
+    """Map generated question numbers to DB attempt_ids for retry questions.
+
+    Uses simple keyword overlap to match generated questions with previously
+    wrong questions from the DB.
+
+    Returns {question_number: attempt_id}.
+    """
+    if not wrong_questions:
+        return {}
+
+    generated = _extract_questions(quiz_text)
+    retry_map: dict[int, int] = {}
+
+    for wq in wrong_questions:
+        attempt_id = wq.get("attempt_id")
+        wq_text = (wq.get("question") or "").lower()
+        if not wq_text or not attempt_id:
+            continue
+        wq_words = set(re.findall(r"\w+", wq_text)) - {"the", "a", "an", "is", "of", "in", "to", "and", "or"}
+        best_num = None
+        best_overlap = 0
+        for num, gen_text in generated.items():
+            if num in retry_map:
+                continue
+            gen_words = set(re.findall(r"\w+", gen_text.lower()))
+            overlap = len(wq_words & gen_words)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_num = num
+        if best_num is not None and best_overlap >= 2:
+            retry_map[best_num] = attempt_id
+
+    return retry_map
+
+
+def _build_quiz_save(
+    quiz_state: dict[str, Any],
+    answer_key: dict[int, str],
+    user_answers: dict[int, str],
+) -> dict[str, Any] | None:
+    """Build a quiz_save payload for the db_agent after scoring."""
+    topic_id = quiz_state.get("topic_id")
+    if topic_id is None:
+        return None
+
+    quiz_text = quiz_state.get("quiz_text") or ""
+    questions = _extract_questions(quiz_text)
+    retry_attempt_ids = quiz_state.get("retry_attempt_ids") or {}
+
+    wrong_answers: list[dict[str, Any]] = []
+    correct_retries: list[int] = []
+
+    for number in sorted(answer_key.keys()):
+        expected = answer_key[number]
+        got = user_answers.get(number)
+        question_text = questions.get(number, f"Question {number}")
+
+        if got == expected:
+            # Correct — if this was a retry, mark for deletion
+            if number in retry_attempt_ids:
+                correct_retries.append(retry_attempt_ids[number])
+        else:
+            # Wrong — save for future re-quiz (skip if already a retry in DB)
+            if number not in retry_attempt_ids:
+                wrong_answers.append({
+                    "question": question_text,
+                    "user_answer": got,
+                })
+
+    if not wrong_answers and not correct_retries:
+        return None
+
+    return {
+        "topic_id": topic_id,
+        "wrong_answers": wrong_answers,
+        "correct_retries": correct_retries,
+    }

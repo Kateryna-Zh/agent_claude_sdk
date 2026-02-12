@@ -52,8 +52,10 @@ class GraphState(TypedDict):
         Whether the user has confirmed saving the draft plan.
     quiz_state : dict[str, Any] | None
         Cached quiz payload with questions and answer key for evaluation.
+    quiz_results_saved : bool
+        Prevents db→quiz loop after post-quiz save
     """
-    #Annotated fields allow us to apply the add_messages reducer to the messages field, 
+    # Annotated fields allow us to apply the add_messages reducer to the messages field, 
     # so that all nodes receive the full conversation history without needing to manage it themselves.
     messages: Annotated[list[BaseMessage], add_messages]
     user_input: str
@@ -75,3 +77,4 @@ class GraphState(TypedDict):
     plan_draft: dict[str, Any] | None
     plan_confirmed: bool
     quiz_state: dict[str, Any] | None
+    quiz_results_saved: bool

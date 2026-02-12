@@ -71,6 +71,19 @@ def execute_tool(
             feedback=args.get("feedback"),
         )
         return {"attempt_id": attempt_id}
+    if name == "get_wrong_questions":
+        topic_id = args.get("topic_id")
+        if topic_id is None:
+            return {"error": "topic_id_required"}
+        questions = repo.get_wrong_questions(topic_id)
+        db_context["wrong_questions"] = questions
+        return {"wrong_questions": questions}
+    if name == "delete_quiz_attempt":
+        attempt_id = args.get("attempt_id")
+        if attempt_id is None:
+            return {"error": "attempt_id_required"}
+        repo.delete_quiz_attempt(attempt_id)
+        return {"deleted_attempt_id": attempt_id}
     if name == "get_weak_topics":
         limit = args.get("limit", 5)
         topics = repo.get_weak_topics(limit)
@@ -263,6 +276,14 @@ def get_langchain_tools(db_context: dict[str, Any], repo=None):
             repo=repo,
         )
 
+    def get_wrong_questions(topic_id: int):
+        """Get wrong quiz questions for a topic."""
+        return execute_tool("get_wrong_questions", {"topic_id": topic_id}, db_context, repo=repo)
+
+    def delete_quiz_attempt(attempt_id: int):
+        """Delete a quiz attempt by ID."""
+        return execute_tool("delete_quiz_attempt", {"attempt_id": attempt_id}, db_context, repo=repo)
+
     def save_quiz_attempt(
         question: str,
         topic_id: int | None = None,
@@ -324,6 +345,8 @@ def get_langchain_tools(db_context: dict[str, Any], repo=None):
         StructuredTool.from_function(add_plan_item, name="add_plan_item"),
         StructuredTool.from_function(update_item_status, name="update_item_status"),
         StructuredTool.from_function(update_plan_status, name="update_plan_status"),
+        StructuredTool.from_function(get_wrong_questions, name="get_wrong_questions"),
+        StructuredTool.from_function(delete_quiz_attempt, name="delete_quiz_attempt"),
         StructuredTool.from_function(save_quiz_attempt, name="save_quiz_attempt"),
         StructuredTool.from_function(get_weak_topics, name="get_weak_topics"),
         StructuredTool.from_function(get_due_flashcards, name="get_due_flashcards"),

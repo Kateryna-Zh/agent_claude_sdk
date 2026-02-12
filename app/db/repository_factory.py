@@ -45,11 +45,19 @@ class PsycopgRepository:
     def get_plans(self):
         return psycopg_repo.get_plans()
 
-    def save_quiz_attempt(self, topic_id, question, user_answer, score, feedback) -> int:
+    def save_quiz_attempt(
+        self, topic_id, question: str, user_answer=None, score=None, feedback=None
+    ) -> int:
         return psycopg_repo.save_quiz_attempt(topic_id, question, user_answer, score, feedback)
 
     def get_weak_topics(self, limit: int = 5):
         return psycopg_repo.get_weak_topics(limit)
+
+    def get_wrong_questions(self, topic_id: int):
+        return psycopg_repo.get_wrong_questions(topic_id)
+    
+    def delete_quiz_attempt(self, attempt_id: int) -> None:
+        return psycopg_repo.delete_quiz_attempt(attempt_id)
 
     def create_flashcard(self, topic_id, front: str, back: str) -> int:
         return psycopg_repo.create_flashcard(topic_id, front, back)

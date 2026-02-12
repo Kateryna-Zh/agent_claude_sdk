@@ -55,3 +55,22 @@ def route_to_specialist(state: GraphState) -> str:
         return "db"
     return "tutor"
 
+def route_after_db(state: GraphState) -> str:
+     """After db node: for QUIZ pre-fetch, continue to RAG or quiz. Otherwise format."""
+     intent = state.get("intent")
+     if intent == "QUIZ" and not state.get("quiz_results_saved"):
+         # Pre-quiz DB done → continue to RAG retrieval or quiz
+         if state.get("needs_rag"):
+             return "retrieve_context"
+         return "quiz"
+     # All other intents (REVIEW, LOG_PROGRESS, PLAN/SAVE_PLAN) + post-quiz DB
+     return "format_response"
+
+
+def route_after_quiz(state: GraphState) -> str:
+    """After quiz node: if scoring produced save/delete instructions, route to db."""
+    db_context = state.get("db_context") or {}
+    if db_context.get("quiz_save"):
+        return "db"
+    return "format_response"
+

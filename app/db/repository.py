@@ -148,7 +148,7 @@ def save_quiz_attempt(
     score: float | None,
     feedback: str | None,
 ) -> int:
-    """Record a quiz attempt."""
+    """Persist a quiz attempt and return the attempt_id."""
     row = _execute(
         "INSERT INTO quiz_attempts (topic_id, question, user_answer, score, feedback) "
         "VALUES (%s, %s, %s, %s, %s) RETURNING attempt_id",
@@ -156,8 +156,6 @@ def save_quiz_attempt(
         fetch="one",
     )
     return int(row["attempt_id"])
-
-
 def get_weak_topics(limit: int = 5) -> list[dict[str, Any]]:
     """Return topics with lowest average quiz scores."""
     return _execute(
@@ -167,6 +165,22 @@ def get_weak_topics(limit: int = 5) -> list[dict[str, Any]]:
         "ORDER BY avg_score ASC NULLS LAST LIMIT %s",
         [limit],
         fetch="all",
+    )
+
+def get_wrong_questions(topic_id: int) -> list[dict[str, Any]]:
+    """Fetch wrong quiz questions for a topic."""
+    return _execute(
+        "SELECT attempt_id, question FROM quiz_attempts WHERE topic_id = %s",
+        [topic_id],
+        fetch="all",
+    )
+
+
+def delete_quiz_attempt(attempt_id: int) -> None:
+    """Delete a quiz attempt by id."""
+    _execute(
+        "DELETE FROM quiz_attempts WHERE attempt_id = %s",
+        [attempt_id],
     )
 
 

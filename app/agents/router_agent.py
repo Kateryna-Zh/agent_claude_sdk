@@ -88,6 +88,8 @@ def router_node(state: GraphState) -> dict:
         needs_db = False
     elif parsed.intent in {"REVIEW", "LOG_PROGRESS"}:
         needs_db = True
+    elif parsed.intent == "QUIZ":
+        needs_db = True  # Always check for prior wrong questions
 
     # Populate db_context with extracted titles so downstream nodes can use them.
     db_context = state.get("db_context") or {}
