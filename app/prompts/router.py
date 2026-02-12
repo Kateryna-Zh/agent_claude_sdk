@@ -24,6 +24,7 @@ Intent definitions:
 
 Rules:
 - needs_rag = true when the answer likely exists in the local knowledge base.
+- For QUIZ intent, set needs_rag = true when the quiz topic is covered by the KB.
 - The current KB focuses on: LangChain, LangGraph, Python interview topics, and useful links.
 - If the question is outside that scope, set needs_rag = false.
 - needs_web = true ONLY when the user asks for the latest news, trends, updates,
@@ -60,10 +61,6 @@ Output:
 {"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Python","item_title":null}
 
 User: "List items for Learning Plan for HTML"
-Output:
-{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
-
-User: "List items in Learning Plan for HTML"
 Output:
 {"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
 
@@ -104,7 +101,17 @@ Output:
 User: "I started Learn the basics of HTML, update status"
 Output:
 {"intent":"LOG_PROGRESS","sub_intent":"UPDATE_STATUS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Learn the basics of HTML"}
+
+User: "Quiz me on LangChain"
+ Output:
+ {"intent":"QUIZ","sub_intent":null,"needs_rag":true,"needs_web":false,"needs_db":false,"plan_title":null,"item_title":null}
+
+User: "Quiz me on React"
+Output:
+{"intent":"QUIZ","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":false,"plan_title":null,"item_title":null}
 """
+
+
 
 ROUTER_USER_PROMPT = """\
 User message: {user_input}

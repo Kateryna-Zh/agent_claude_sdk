@@ -1,6 +1,5 @@
 """Quiz agent node — generates and evaluates quizzes."""
 
-import json
 import logging
 import re
 from typing import Any
@@ -33,6 +32,7 @@ def quiz_node(state: GraphState) -> dict:
     """
     user_input = (state.get("user_input") or "").strip()
     db_context = state.get("db_context") or {}
+    rag_context = state.get("rag_context", "")
 
     evaluation = _extract_evaluation_payload(user_input)
     if evaluation:
@@ -76,7 +76,7 @@ def quiz_node(state: GraphState) -> dict:
 
     prompt = QUIZ_GENERATE_SYSTEM_PROMPT + "\n\n" + QUIZ_GENERATE_USER_PROMPT.format(
         user_input=user_input,
-        db_context=json.dumps(db_context, ensure_ascii=False),
+        rag_context=rag_context,
     )
     llm = get_chat_model()
     logger.info("Quiz generation LLM call started")
@@ -88,7 +88,7 @@ def quiz_node(state: GraphState) -> dict:
     if not generated_answer_key or (question_count and len(generated_answer_key) != question_count):
         content, generated_answer_key = _retry_append_answer_key(llm, content, question_count)
     if question_count and len(generated_answer_key) != question_count:
-        content, generated_answer_key = _retry_regenerate_mcq_only(llm, user_input, question_count)
+        content, generated_answer_key = _retry_regenerate_mcq_only(llm, user_input, question_count, rag_context)
         question_count = _count_questions(content)
     display_text = _strip_answer_key(content)
     quiz_state_update = {
@@ -233,8 +233,9 @@ def _retry_append_answer_key(llm, quiz_text: str, question_count: int | None) ->
     return quiz_text, {}
 
 
-def _retry_regenerate_mcq_only(llm, user_input: str, question_count: int | None) -> tuple[str, dict[int, str]]:
+def _retry_regenerate_mcq_only(llm, user_input: str, question_count: int | None, rag_context: str = "") -> tuple[str, dict[int, str]]:
     count_hint = f"{question_count}" if question_count else "the requested"
+    context_block = f"\n\nKnowledge base context:\n{rag_context}" if rag_context.strip() else ""
     prompt = (
         "Regenerate the quiz as multiple-choice questions only.\n"
         "Rules:\n"
@@ -244,6 +245,7 @@ def _retry_regenerate_mcq_only(llm, user_input: str, question_count: int | None)
         "- Provide an answer key that matches the number of questions exactly.\n"
         "Format the answer key as: Answer key: 1:A, 2:B\n\n"
         f"Topic: {user_input}"
+        f"{context_block}"
     )
     logger.info("Quiz regeneration LLM call started")
     response = llm.invoke(prompt)

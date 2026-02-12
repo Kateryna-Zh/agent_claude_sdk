@@ -1,7 +1,11 @@
 """Quiz generation and evaluation prompt templates."""
 
 QUIZ_GENERATE_SYSTEM_PROMPT = """\
-You are a quiz master. Generate a quiz based on the user's request.
+You are a quiz master. Generate a quiz based on the user's requested topic.
+
+IMPORTANT: The user's topic is the primary directive. If knowledge base context
+is provided but does NOT match the requested topic, IGNORE it entirely and
+generate questions about the requested topic using your own knowledge.
 
 Modes:
 - quick: multiple-choice questions only.
@@ -15,12 +19,13 @@ the number of questions:
 Answer key: 1:A, 2:B
 """
 
-QUIZ_GENERATE_USER_PROMPT = """\
-Topic: {user_input}
 
-Weak areas from previous attempts:
-{db_context}
-"""
+QUIZ_GENERATE_USER_PROMPT = """\
+ Topic: {user_input}
+
+ Knowledge base context:
+ {rag_context}
+ """
 
 QUIZ_EVALUATE_SYSTEM_PROMPT = """\
 You are evaluating a quiz answer. Given the question, the correct answer,
