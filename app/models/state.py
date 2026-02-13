@@ -54,6 +54,8 @@ class GraphState(TypedDict):
         Cached quiz payload with questions and answer key for evaluation.
     quiz_results_saved : bool
         Prevents db→quiz loop after post-quiz save
+    quiz_next_action : str | None
+        Optional next node chosen by quiz agent (e.g., "db" or "format_response").
     """
     # Annotated fields allow us to apply the add_messages reducer to the messages field, 
     # so that all nodes receive the full conversation history without needing to manage it themselves.
@@ -78,3 +80,4 @@ class GraphState(TypedDict):
     plan_confirmed: bool
     quiz_state: dict[str, Any] | None
     quiz_results_saved: bool
+    quiz_next_action: str | None

@@ -27,6 +27,9 @@ Rules:
 - For QUIZ intent, set needs_rag = true when the quiz topic is covered by the KB.
 - The current KB focuses on: LangChain, LangGraph, Python interview topics, and useful links.
 - If the question is outside that scope, set needs_rag = false.
+- If unsure about KB coverage, default to needs_rag = false (be conservative).
+- For QUIZ, ONLY set needs_rag = true if the topic explicitly matches KB scope
+  or a KB filename is mentioned (e.g., "langgraph.md", "python_interview.md").
 - needs_web = true ONLY when the user asks for the latest news, trends, updates,
   or recent changes about a topic. Otherwise set needs_web = false.
 - needs_db = true when historical user data (plans, quiz scores, progress) is needed.

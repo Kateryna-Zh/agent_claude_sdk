@@ -36,6 +36,20 @@ Previously wrong questions (must include in quiz):
 {wrong_questions}
 """
 
+QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT = """\
+You are a relevance judge. Decide if the provided knowledge base context
+directly matches the user's quiz topic.
+
+Return ONLY one token: YES or NO.
+"""
+
+QUIZ_RAG_RELEVANCE_USER_PROMPT = """\
+Topic: {user_input}
+
+Knowledge base context:
+{rag_context}
+"""
+
 QUIZ_EVALUATE_SYSTEM_PROMPT = """\
 You are evaluating a quiz answer. Given the question, the correct answer,
 and the user's answer, provide:

@@ -11,6 +11,8 @@ from app.prompts.quiz import (
     QUIZ_EVALUATE_USER_PROMPT,
     QUIZ_GENERATE_SYSTEM_PROMPT,
     QUIZ_GENERATE_USER_PROMPT,
+    QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT,
+    QUIZ_RAG_RELEVANCE_USER_PROMPT,
 )
 
 logger = logging.getLogger("uvicorn.error")
@@ -46,7 +48,13 @@ def quiz_node(state: GraphState) -> dict:
         response = llm.invoke(prompt)
         logger.info("Quiz evaluation LLM call finished")
         content = getattr(response, "content", str(response)).strip()
-        return {"user_response": content, "specialist_output": content}
+        logger.info("quiz_node: next_action=format_response (evaluation)")
+        print("quiz_node next_action -> format_response (evaluation)")
+        return {
+            "user_response": content,
+            "specialist_output": content,
+            "quiz_next_action": "format_response",
+        }
 
     quiz_state = state.get("quiz_state") or {}
     answer_key = quiz_state.get("answer_key") or {}
@@ -56,7 +64,13 @@ def quiz_node(state: GraphState) -> dict:
             "I couldn't find an answer key for the last quiz, so I can't score your answers. "
             "Please ask for a new quiz or paste the answer key."
         )
-        return {"user_response": content, "specialist_output": content}
+        logger.info("quiz_node: next_action=format_response (missing answer key)")
+        print("quiz_node next_action -> format_response (missing answer key)")
+        return {
+            "user_response": content,
+            "specialist_output": content,
+            "quiz_next_action": "format_response",
+        }
     if answer_key and user_answers:
         score, details, missing = _score_answers(answer_key, user_answers)
         lines = [
@@ -80,11 +94,15 @@ def quiz_node(state: GraphState) -> dict:
         if quiz_save:
             db_context["quiz_save"] = quiz_save
 
+        next_action = "db" if quiz_save else "format_response"
+        logger.info("quiz_node: next_action=%s (scoring)", next_action)
+        print(f"quiz_node next_action -> {next_action} (scoring)")
         return {
             "user_response": content,
             "specialist_output": content,
             "quiz_state": None,
             "db_context": db_context,
+            "quiz_next_action": next_action,
         }
 
     # Format wrong questions from db_context for the prompt
@@ -92,6 +110,29 @@ def quiz_node(state: GraphState) -> dict:
     wrong_questions_text = _format_wrong_questions(wrong_questions_raw)
     topic_id = db_context.get("quiz_topic_id")
     topic_name = db_context.get("quiz_topic_name")
+
+    # Agentic KB relevance check: drop rag_context if it doesn't match topic.
+    if rag_context.strip():
+        relevance_prompt = (
+            QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT
+            + "\n\n"
+            + QUIZ_RAG_RELEVANCE_USER_PROMPT.format(
+                user_input=user_input,
+                rag_context=rag_context,
+            )
+        )
+        llm = get_chat_model()
+        logger.info("Quiz RAG relevance check started")
+        relevance_resp = llm.invoke(relevance_prompt)
+        logger.info("Quiz RAG relevance check finished")
+        relevance = getattr(relevance_resp, "content", str(relevance_resp)).strip().upper()
+        if not relevance.startswith("YES"):
+            rag_context = ""
+            logger.info("quiz_node: rag_context dropped (relevance=%s)", relevance)
+            print(f"quiz_node rag_context -> dropped (relevance={relevance})")
+        else:
+            logger.info("quiz_node: rag_context kept (relevance=YES)")
+            print("quiz_node rag_context -> kept (relevance=YES)")
 
     prompt = QUIZ_GENERATE_SYSTEM_PROMPT + "\n\n" + QUIZ_GENERATE_USER_PROMPT.format(
         user_input=user_input,
@@ -123,7 +164,14 @@ def quiz_node(state: GraphState) -> dict:
         "topic_name": topic_name,
         "retry_attempt_ids": retry_attempt_ids,
     }
-    return {"user_response": display_text, "specialist_output": display_text, "quiz_state": quiz_state_update}
+    logger.info("quiz_node: next_action=format_response (generation)")
+    print("quiz_node next_action -> format_response (generation)")
+    return {
+        "user_response": display_text,
+        "specialist_output": display_text,
+        "quiz_state": quiz_state_update,
+        "quiz_next_action": "format_response",
+    }
 
 
 def _extract_evaluation_payload(text: str) -> dict[str, Any] | None:
