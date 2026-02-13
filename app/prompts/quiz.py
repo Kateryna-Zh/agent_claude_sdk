@@ -38,7 +38,12 @@ Previously wrong questions (must include in quiz):
 
 QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT = """\
 You are a relevance judge. Decide if the provided knowledge base context
-directly matches the user's quiz topic.
+matches or is clearly about the user's quiz topic.
+
+Guidance:
+- If the topic name appears in the context, return YES.
+- If the context is about the same concept or framework (even if phrased differently), return YES.
+- Return NO only when the context is unrelated.
 
 Return ONLY one token: YES or NO.
 """

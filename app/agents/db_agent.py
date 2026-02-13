@@ -9,7 +9,6 @@ from typing import Any
 
 from app.models.state import GraphState
 from app.llm.ollama_client import get_chat_model
-from app.db.repository_factory import get_repository
 from app.tools.db_tools import execute_tool, get_langchain_tools
 
 logger = logging.getLogger("uvicorn.error")
@@ -22,41 +21,24 @@ def db_agent_node(state: GraphState) -> dict:
     intent = state.get("intent")
     sub_intent = state.get("sub_intent")
 
-    # --- QUIZ intent: pre-fetch or post-save ---
+    # --- QUIZ intent: pre-fetch or post-save via tools ---
     if intent == "QUIZ":
         quiz_save = db_context.get("quiz_save")
         if quiz_save:
-            # Post-quiz: save wrong answers & delete correct retries
-            return _handle_quiz_post_save(db_context, quiz_save)
-        else:
-            # Pre-quiz: fetch wrong questions for topic
-            return _handle_quiz_pre_fetch(state, db_context)
-
-    if intent == "REVIEW" and sub_intent in {"LIST_PLANS", "LIST_ITEMS"}:
-        tool_calls = []
-        if sub_intent == "LIST_PLANS":
-            _reset_plan_item_context(db_context)
-            tool_calls.append({"name": "list_plans", "arguments": {}})
-        else:
-            plan_title = db_context.get("requested_plan_title") or state.get("user_input")
-            db_context["requested_plan_title"] = plan_title
-            tool_calls.append({"name": "list_plans", "arguments": {}})
-            tool_calls.append({"name": "list_plan_items", "arguments": {"plan_id": None, "plan_title": plan_title}})
-        _execute_fallback_tools(state, db_context)
-        logger.info(
-            "DB agent fast-path tool_calls: %s",
-            json.dumps({"tool_calls": tool_calls}, ensure_ascii=False),
-        )
-        response = _format_db_response(db_context)
-        return {
-            "user_response": response,
-            "specialist_output": response,
-            "db_context": db_context,
-        }
+            return _handle_quiz_post_save(state, db_context, quiz_save)
+        return _handle_quiz_pre_fetch(state, db_context)
 
     # Try tool-calling first (LangChain tools bound to the model).
     tool_result = _run_tool_calling(state, db_context)
     if tool_result is not None:
+        logger.info("DB agent tool-calling returned %d result(s).", len(tool_result.get("results") or []))
+        error_message = _format_tool_error(tool_result)
+        if error_message:
+            return {
+                "user_response": error_message,
+                "specialist_output": error_message,
+                "db_context": db_context,
+            }
         # Check if a status update happened — return confirmation instead of plan listing.
         confirmation = _format_tool_result_confirmation(tool_result)
         if confirmation:
@@ -73,6 +55,7 @@ def db_agent_node(state: GraphState) -> dict:
         }
 
     # Fallback to intent-driven tools if tool-calling returns nothing.
+    logger.info("DB agent fallback path (no tool-calls). intent=%s", intent)
     _execute_fallback_tools(state, db_context)
     response = _format_db_response(db_context)
     return {
@@ -84,13 +67,11 @@ def db_agent_node(state: GraphState) -> dict:
 
 
 def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str, Any] | None:
-    if state.get("intent") == "PLAN" and state.get("sub_intent") != "SAVE_PLAN":
-        return None
     tools = get_langchain_tools(db_context)
     system = (
         "You are a DB agent. Use tools to read/write the database. "
         "Prefer tools over free-form text. "
-        "If intent is PLAN and sub_intent is SAVE_PLAN, call write_plan with plan_draft. "
+        "If intent is PLAN and plan_confirmed is true, you MUST call write_plan with plan_draft. "
         "If intent is REVIEW, call list_plans or list_plan_items as needed. "
         "If intent is LOG_PROGRESS, call update_item_status or update_plan_status. "
         "If no tool is needed, respond without tool_calls."
@@ -99,6 +80,7 @@ def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str
         "user_input": state.get("user_input"),
         "intent": state.get("intent"),
         "sub_intent": state.get("sub_intent"),
+        "plan_confirmed": state.get("plan_confirmed"),
         "plan_draft": state.get("plan_draft"),
         "db_context": db_context,
     }
@@ -123,6 +105,11 @@ def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str
     for call in tool_calls:
         name = call.get("name")
         args = call.get("args") or {}
+        if name == "list_plan_items" and not (args.get("plan_id") or args.get("plan_title")):
+            if db_context.get("requested_plan_id") is not None:
+                args = {"plan_id": db_context.get("requested_plan_id")}
+            elif db_context.get("requested_plan_title"):
+                args = {"plan_title": db_context.get("requested_plan_title")}
         if name == "write_plan":
             if not state.get("plan_confirmed"):
                 logger.info("Skipping write_plan (plan not confirmed).")
@@ -140,6 +127,7 @@ def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str
         if tool is None:
             continue
         result = tool.invoke(args)
+        logger.info("DB agent tool %s args=%s", name, json.dumps(args, ensure_ascii=False))
         results.append({"tool_call_id": call.get("id"), "name": name, "result": result})
 
     logger.info(
@@ -157,35 +145,130 @@ def _format_tool_result_confirmation(tool_result: dict[str, Any]) -> str | None:
     for r in results:
         name = r.get("name", "")
         result = r.get("result") or {}
-        if name == "update_item_status" and "error" not in result:
-            item_id = result.get("item_id")
-            status = result.get("status")
+        if not result.get("ok"):
+            continue
+        data = result.get("data") or {}
+        if name == "write_plan":
+            confirmations.append(f"Plan created (plan {data.get('created_plan_id')}).")
+        elif name == "add_plan_item":
+            confirmations.append(f"Plan item added (item {data.get('item_id')}).")
+        if name == "update_item_status":
+            item_id = data.get("item_id")
+            status = data.get("status")
             confirmations.append(f"Status for item {item_id} updated to {status}.")
-        elif name == "update_plan_status" and "error" not in result:
-            plan_id = result.get("plan_id")
-            status = result.get("status")
+        elif name == "update_plan_status":
+            plan_id = data.get("plan_id")
+            status = data.get("status")
             confirmations.append(f"All items in plan {plan_id} updated to {status}.")
-        elif name == "save_quiz_attempt" and "error" not in result:
-            confirmations.append(f"Quiz attempt saved (attempt {result.get('attempt_id')}).")
-        elif name == "create_flashcard" and "error" not in result:
-            confirmations.append(f"Flashcard created (card {result.get('card_id')}).")
-        elif name == "save_message" and "error" not in result:
+        elif name == "save_quiz_attempt":
+            confirmations.append(f"Quiz attempt saved (attempt {data.get('attempt_id')}).")
+        elif name == "quiz_post_save":
+            confirmations.append(
+                f"Quiz results saved (wrong saved {data.get('saved_wrong')}, deleted correct {data.get('deleted_correct')})."
+            )
+        elif name == "create_flashcard":
+            confirmations.append(f"Flashcard created (card {data.get('card_id')}).")
+        elif name == "update_flashcard_review":
+            confirmations.append(f"Flashcard {data.get('card_id')} review updated.")
+        elif name == "save_message":
             confirmations.append(f"Message saved.")
     return "\n".join(confirmations) if confirmations else None
 
 
+def _format_tool_error(tool_result: dict[str, Any]) -> str | None:
+    """Format tool errors into a user-facing clarification when possible."""
+    results = tool_result.get("results") or []
+    for r in results:
+        result = r.get("result") or {}
+        if result.get("ok") is not False:
+            continue
+        error = result.get("error") or {}
+        code = error.get("code")
+        if code == "conflict":
+            return _format_conflict(error)
+        if code == "validation_error":
+            return _format_validation_error(error)
+        if code == "not_found":
+            return _format_not_found(error)
+        if code == "permission_denied":
+            return error.get("message") or "Permission denied for that request."
+        if code == "unknown_tool":
+            return "That request is not supported yet."
+        if code == "db_error":
+            return "I hit a database error. Please try again."
+        return error.get("message") or "Something went wrong."
+    return None
+
+
+def _format_validation_error(error: dict[str, Any]) -> str:
+    details = error.get("details") or {}
+    fields = details.get("fields") or []
+    if not fields:
+        return "I couldn't validate that request. Please check your inputs."
+    lines = ["I need a bit more detail:"]
+    for f in fields:
+        field = f.get("field", "field")
+        msg = f.get("message", "Invalid value")
+        lines.append(f"- {field}: {msg}")
+    return "\n".join(lines)
+
+
+def _format_not_found(error: dict[str, Any]) -> str:
+    details = error.get("details") or {}
+    entity_type = details.get("entity_type", "item")
+    query = details.get("query") or {}
+    if entity_type == "plan":
+        plan_title = query.get("plan_title")
+        plan_id = query.get("plan_id")
+        if plan_title:
+            return f"I couldn't find a plan titled '{plan_title}'."
+        if plan_id:
+            return f"I couldn't find plan {plan_id}."
+        return "I couldn't find that plan."
+    if entity_type == "item":
+        item_title = query.get("item_title")
+        if item_title:
+            return f"I couldn't find an item titled '{item_title}'."
+    return error.get("message") or "I couldn't find what you're looking for."
+
+
+def _format_conflict(error: dict[str, Any]) -> str:
+    details = error.get("details") or {}
+    entity_type = details.get("entity_type", "item")
+    candidates = details.get("candidates") or []
+    if not candidates:
+        return "I found multiple matches. Which one did you mean?"
+    lines = [f"I found multiple {entity_type}s. Which one did you mean?"]
+    for c in candidates:
+        parts = []
+        if c.get("plan_id") is not None:
+            parts.append(f"plan {c.get('plan_id')}")
+        if c.get("item_id") is not None:
+            parts.append(f"item {c.get('item_id')}")
+        title = c.get("title")
+        if title:
+            parts.append(f"'{title}'")
+        created_at = c.get("created_at")
+        if created_at:
+            parts.append(f"created {created_at}")
+        lines.append("- " + ", ".join(parts))
+    return "\n".join(lines)
+
+
 def _execute_fallback_tools(state: GraphState, db_context: dict[str, Any]) -> None:
     intent = state.get("intent")
-    sub_intent = state.get("sub_intent")
-    if intent == "REVIEW" and sub_intent == "LIST_PLANS":
+    if intent == "REVIEW":
+        plan_title = db_context.get("requested_plan_title")
+        plan_id = db_context.get("requested_plan_id")
+        if plan_title or plan_id:
+            execute_tool(
+                "list_plan_items",
+                {"plan_id": plan_id, "plan_title": plan_title},
+                db_context,
+            )
+            return
         _reset_plan_item_context(db_context)
         execute_tool("list_plans", {}, db_context)
-        return
-    if intent == "REVIEW" and sub_intent == "LIST_ITEMS":
-        plan_title = db_context.get("requested_plan_title") or state.get("user_input")
-        db_context["requested_plan_title"] = plan_title
-        execute_tool("list_plans", {}, db_context)
-        execute_tool("list_plan_items", {"plan_id": None, "plan_title": plan_title}, db_context)
         return
     if intent == "LOG_PROGRESS":
         item_title = db_context.get("requested_item_title")
@@ -195,10 +278,15 @@ def _execute_fallback_tools(state: GraphState, db_context: dict[str, Any]) -> No
                 {"status": "in_progress", "item_title": item_title, "plan_id": "latest"},
                 db_context,
             )
-            if "error" not in result:
-                db_context["_confirmation"] = f"Status for '{item_title}' updated to {result.get('status', 'in_progress')}."
+            if result.get("ok"):
+                data = result.get("data") or {}
+                db_context["_confirmation"] = f"Status for '{item_title}' updated to {data.get('status', 'in_progress')}."
             else:
-                db_context["_confirmation"] = f"Could not find item '{item_title}'."
+                error = result.get("error") or {}
+                if error.get("code") == "conflict":
+                    db_context["_confirmation"] = _format_conflict(error)
+                else:
+                    db_context["_confirmation"] = f"Could not find item '{item_title}'."
         return
 
 
@@ -302,53 +390,62 @@ def _handle_quiz_pre_fetch(state: GraphState, db_context: dict[str, Any]) -> dic
     """Pre-quiz: extract topic, upsert it, fetch previously-wrong questions."""
     user_input = (state.get("user_input") or "").strip()
     topic_name = _extract_topic_name(user_input)
-    repo = get_repository()
-    try:
-        topic_id = repo.upsert_topic(topic_name)
-        wrong_questions = repo.get_wrong_questions(topic_id) if topic_id else []
-    except Exception as exc:
-        logger.warning("Quiz pre-fetch DB error: %s", exc)
-        topic_id = None
-        wrong_questions = []
-
-    db_context["wrong_questions"] = wrong_questions
-    db_context["quiz_topic_id"] = topic_id
-    db_context["quiz_topic_name"] = topic_name
+    result = execute_tool("quiz_pre_fetch", {"topic_name": topic_name}, db_context)
+    if not result.get("ok"):
+        error = _format_tool_error({"results": [{"result": result}]})
+        if error:
+            return {"user_response": error, "specialist_output": error, "db_context": db_context}
+    data = result.get("data") or {}
+    db_context["quiz_topic_id"] = data.get("topic_id")
+    db_context["quiz_topic_name"] = data.get("topic_name", topic_name)
+    db_context["wrong_questions"] = data.get("wrong_questions") or []
     logger.info(
         "Quiz pre-fetch: topic=%s id=%s wrong_questions=%d",
-        topic_name, topic_id, len(wrong_questions),
+        db_context.get("quiz_topic_name"),
+        db_context.get("quiz_topic_id"),
+        len(db_context.get("wrong_questions") or []),
     )
     return {"db_context": db_context}
 
 
-def _handle_quiz_post_save(db_context: dict[str, Any], quiz_save: dict[str, Any]) -> dict:
+def _handle_quiz_post_save(state: GraphState, db_context: dict[str, Any], quiz_save: dict[str, Any]) -> dict:
     """Post-quiz: persist wrong answers and remove correct retries."""
     db_context.pop("quiz_save", None)
-    topic_id = quiz_save.get("topic_id")
-    wrong_answers = quiz_save.get("wrong_answers") or []
-    correct_retries = quiz_save.get("correct_retries") or []
-    repo = get_repository()
-
-    for entry in wrong_answers:
-        try:
-            repo.save_quiz_attempt(
-                topic_id=topic_id,
-                question=entry.get("question", ""),
-                user_answer=entry.get("user_answer"),
-                score=0.0,
-                feedback=None,
-            )
-        except Exception as exc:
-            logger.warning("Failed to save wrong answer: %s", exc)
-
-    for attempt_id in correct_retries:
-        try:
-            repo.delete_quiz_attempt(attempt_id)
-        except Exception as exc:
-            logger.warning("Failed to delete correct retry %s: %s", attempt_id, exc)
-
-    logger.info(
-        "Quiz post-save: saved %d wrong, deleted %d correct retries",
-        len(wrong_answers), len(correct_retries),
+    result = execute_tool(
+        "quiz_post_save",
+        {
+            "topic_id": quiz_save.get("topic_id"),
+            "wrong_answers": quiz_save.get("wrong_answers") or [],
+            "correct_retries": quiz_save.get("correct_retries") or [],
+        },
+        db_context,
     )
+    if not result.get("ok"):
+        error = _format_tool_error({"results": [{"result": result}]})
+        if error:
+            return {"user_response": error, "specialist_output": error, "db_context": db_context}
+    confirmation = _format_tool_result_confirmation({"results": [{"name": "quiz_post_save", "result": result}]})
+    feedback = state.get("quiz_feedback")
+    if feedback and confirmation:
+        message = f"{feedback}\n\n{confirmation}"
+        return {
+            "user_response": message,
+            "specialist_output": message,
+            "db_context": db_context,
+            "quiz_results_saved": True,
+        }
+    if feedback:
+        return {
+            "user_response": feedback,
+            "specialist_output": feedback,
+            "db_context": db_context,
+            "quiz_results_saved": True,
+        }
+    if confirmation:
+        return {
+            "user_response": confirmation,
+            "specialist_output": confirmation,
+            "db_context": db_context,
+            "quiz_results_saved": True,
+        }
     return {"quiz_results_saved": True, "db_context": db_context}

@@ -58,6 +58,9 @@ def planner_node(state: GraphState) -> dict:
 
     user_response = parsed.user_response
     plan_draft = parsed.plan_draft.model_dump()
+    if not plan_draft.get("title"):
+        fallback_title = (state.get("user_input") or "").strip()
+        plan_draft["title"] = fallback_title or "Study Plan"
 
     if plan_draft and not _has_plan_content(user_response):
         user_response = _render_plan_markdown(plan_draft)

@@ -73,13 +73,6 @@ def router_node(state: GraphState) -> dict:
 
     plan_confirmed = False
     needs_db = parsed.needs_db
-    if parsed.sub_intent in {"LIST_ITEMS", "LIST_PLANS"}:
-        parsed.intent = "REVIEW"
-        needs_db = True
-    if state.get("last_intent") == "REVIEW" and parsed.intent in {"EXPLAIN", "PLAN"}:
-        parsed.intent = "REVIEW"
-        parsed.sub_intent = parsed.sub_intent or "LIST_ITEMS"
-        needs_db = True
     if parsed.intent == "PLAN" and parsed.sub_intent == "SAVE_PLAN" and state.get("plan_draft"):
         plan_confirmed = True
         needs_db = True

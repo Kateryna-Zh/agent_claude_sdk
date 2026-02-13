@@ -46,7 +46,7 @@ def route_to_specialist(state: GraphState) -> str:
     """
     intent = state.get("intent")
     if intent == "PLAN":
-        if state.get("sub_intent") == "SAVE_PLAN":
+        if state.get("plan_confirmed"):
             return "db"
         return "planner"
     if intent == "QUIZ":

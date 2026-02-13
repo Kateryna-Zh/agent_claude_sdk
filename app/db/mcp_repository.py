@@ -124,10 +124,12 @@ class MCPRepository:
         )
 
     def update_flashcard_review(
-        self, card_id: int, ease_factor: float, next_review_at: str
+        self, card_id: int, ease_factor: float | None, next_review_at: str | None
     ) -> None:
         self._execute(
-            "UPDATE flashcards SET last_seen = NOW(), ease_factor = %s, next_review_at = %s "
+            "UPDATE flashcards SET last_seen = NOW(), "
+            "ease_factor = COALESCE(%s, ease_factor), "
+            "next_review_at = COALESCE(%s, next_review_at) "
             "WHERE card_id = %s",
             [ease_factor, next_review_at, card_id],
         )

@@ -65,7 +65,9 @@ class PsycopgRepository:
     def get_due_flashcards(self, limit: int = 10):
         return psycopg_repo.get_due_flashcards(limit)
 
-    def update_flashcard_review(self, card_id: int, ease_factor: float, next_review_at: str) -> None:
+    def update_flashcard_review(
+        self, card_id: int, ease_factor: float | None, next_review_at: str | None
+    ) -> None:
         return psycopg_repo.update_flashcard_review(card_id, ease_factor, next_review_at)
 
 

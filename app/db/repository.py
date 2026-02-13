@@ -207,10 +207,16 @@ def get_due_flashcards(limit: int = 10) -> list[dict[str, Any]]:
     )
 
 
-def update_flashcard_review(card_id: int, ease_factor: float, next_review_at: str) -> None:
+def update_flashcard_review(
+    card_id: int,
+    ease_factor: float | None,
+    next_review_at: str | None,
+) -> None:
     """Update a flashcard after review."""
     _execute(
-        "UPDATE flashcards SET last_seen = NOW(), ease_factor = %s, next_review_at = %s "
+        "UPDATE flashcards SET last_seen = NOW(), "
+        "ease_factor = COALESCE(%s, ease_factor), "
+        "next_review_at = COALESCE(%s, next_review_at) "
         "WHERE card_id = %s",
         [ease_factor, next_review_at, card_id],
     )

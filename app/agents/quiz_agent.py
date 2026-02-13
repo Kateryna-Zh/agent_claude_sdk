@@ -73,11 +73,33 @@ def quiz_node(state: GraphState) -> dict:
         }
     if answer_key and user_answers:
         score, details, missing = _score_answers(answer_key, user_answers)
-        lines = [
-            f"Score: {score:.2f}",
-            "Results:",
-        ]
-        lines.extend(details)
+        lines = [f"Score: {score:.2f}"]
+        correct_lines = []
+        wrong_lines = []
+        missing_lines = []
+        for entry in details:
+            status = entry.get("status")
+            if status == "error":
+                lines.append(entry.get("message", "Scoring error."))
+                continue
+            number = entry.get("number")
+            got = entry.get("got")
+            expected = entry.get("expected")
+            if status == "correct":
+                correct_lines.append(f"{number}. ✅ ({got})")
+            elif status == "wrong":
+                wrong_lines.append(f"{number}. ❌ (you: {got}, correct: {expected})")
+            elif status == "missing":
+                missing_lines.append(f"{number}. ⚠️ (no key; you answered {got})")
+        if correct_lines:
+            lines.append("Correct:")
+            lines.extend(correct_lines)
+        if wrong_lines:
+            lines.append("Wrong:")
+            lines.extend(wrong_lines)
+        if missing_lines:
+            lines.append("No answer key:")
+            lines.extend(missing_lines)
         if missing:
             lines.append(
                 "Warning: Missing answer key entries for: "
@@ -102,6 +124,7 @@ def quiz_node(state: GraphState) -> dict:
             "specialist_output": content,
             "quiz_state": None,
             "db_context": db_context,
+            "quiz_feedback": content,
             "quiz_next_action": next_action,
         }
 
@@ -113,26 +136,31 @@ def quiz_node(state: GraphState) -> dict:
 
     # Agentic KB relevance check: drop rag_context if it doesn't match topic.
     if rag_context.strip():
-        relevance_prompt = (
-            QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT
-            + "\n\n"
-            + QUIZ_RAG_RELEVANCE_USER_PROMPT.format(
-                user_input=user_input,
-                rag_context=rag_context,
-            )
-        )
-        llm = get_chat_model()
-        logger.info("Quiz RAG relevance check started")
-        relevance_resp = llm.invoke(relevance_prompt)
-        logger.info("Quiz RAG relevance check finished")
-        relevance = getattr(relevance_resp, "content", str(relevance_resp)).strip().upper()
-        if not relevance.startswith("YES"):
-            rag_context = ""
-            logger.info("quiz_node: rag_context dropped (relevance=%s)", relevance)
-            print(f"quiz_node rag_context -> dropped (relevance={relevance})")
+        topic_hint = (topic_name or user_input).strip().lower()
+        if topic_hint and topic_hint in rag_context.lower():
+            logger.info("quiz_node: rag_context kept (topic match)")
+            print("quiz_node rag_context -> kept (topic match)")
         else:
-            logger.info("quiz_node: rag_context kept (relevance=YES)")
-            print("quiz_node rag_context -> kept (relevance=YES)")
+            relevance_prompt = (
+                QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT
+                + "\n\n"
+                + QUIZ_RAG_RELEVANCE_USER_PROMPT.format(
+                    user_input=user_input,
+                    rag_context=rag_context,
+                )
+            )
+            llm = get_chat_model()
+            logger.info("Quiz RAG relevance check started")
+            relevance_resp = llm.invoke(relevance_prompt)
+            logger.info("Quiz RAG relevance check finished")
+            relevance = getattr(relevance_resp, "content", str(relevance_resp)).strip().upper()
+            if not relevance.startswith("YES"):
+                rag_context = ""
+                logger.info("quiz_node: rag_context dropped (relevance=%s)", relevance)
+                print(f"quiz_node rag_context -> dropped (relevance={relevance})")
+            else:
+                logger.info("quiz_node: rag_context kept (relevance=YES)")
+                print("quiz_node rag_context -> kept (relevance=YES)")
 
     prompt = QUIZ_GENERATE_SYSTEM_PROMPT + "\n\n" + QUIZ_GENERATE_USER_PROMPT.format(
         user_input=user_input,
@@ -247,25 +275,36 @@ def _parse_answer_list(text: str) -> dict[int, str]:
 def _score_answers(
     answer_key: dict[int, str],
     user_answers: dict[int, str],
-) -> tuple[float, list[str], list[int]]:
+) -> tuple[float, list[dict[str, Any]], list[int]]:
     total = len(answer_key)
     if total == 0:
-        return 0.0, ["No answer key found to score against."], []
+        return 0.0, [{"status": "error", "message": "No answer key found to score against."}], []
     correct = 0
-    details: list[str] = []
+    details: list[dict[str, Any]] = []
     missing: list[int] = []
     for number in sorted(answer_key.keys()):
         expected = answer_key[number]
         got = user_answers.get(number)
         if got == expected:
             correct += 1
-            details.append(f"{number}. ✅ ({got})")
+            details.append(
+                {"number": number, "status": "correct", "got": got, "expected": expected}
+            )
         else:
-            details.append(f"{number}. ❌ (you: {got or '—'}, correct: {expected})")
+            details.append(
+                {"number": number, "status": "wrong", "got": got or "—", "expected": expected}
+            )
     for number in sorted(user_answers.keys()):
         if number not in answer_key:
             missing.append(number)
-            details.append(f"{number}. ⚠️ (no answer key entry; you answered {user_answers[number]})")
+            details.append(
+                {
+                    "number": number,
+                    "status": "missing",
+                    "got": user_answers[number],
+                    "expected": None,
+                }
+            )
     score = correct / total
     return score, details, missing
 

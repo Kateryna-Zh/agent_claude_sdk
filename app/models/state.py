@@ -56,6 +56,8 @@ class GraphState(TypedDict):
         Prevents db→quiz loop after post-quiz save
     quiz_next_action : str | None
         Optional next node chosen by quiz agent (e.g., "db" or "format_response").
+    quiz_feedback : str | None
+        Scoring feedback to surface after saving quiz results.
     """
     # Annotated fields allow us to apply the add_messages reducer to the messages field, 
     # so that all nodes receive the full conversation history without needing to manage it themselves.
@@ -81,3 +83,4 @@ class GraphState(TypedDict):
     quiz_state: dict[str, Any] | None
     quiz_results_saved: bool
     quiz_next_action: str | None
+    quiz_feedback: str | None

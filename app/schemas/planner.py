@@ -13,7 +13,7 @@ class PlanItemDraft(BaseModel):
 
 
 class PlanDraft(BaseModel):
-    title: str
+    title: str | None = None
     items: list[PlanItemDraft] = Field(default_factory=list)
 
 

@@ -36,9 +36,12 @@ Rules:
 - If the user asks to analyze a KB file or mentions a KB filename, set needs_rag = true.
 - plan_title: Extract ONLY the plan name from the message, stripping action words like "list items for", "show me", etc. Set null if no plan is mentioned.
 - item_title: Extract ONLY the learning item/topic name when the user reports progress. Set null if not applicable.
-- If there is an existing plan draft and the user is confirming a save, set:
+- Only use sub_intent for plan confirmation:
+  If there is an existing plan draft and the user is confirming a save, set
   intent = "PLAN", sub_intent = "SAVE_PLAN", needs_db = true.
 - If the user asks to list plans or plan items, set intent = "REVIEW" and needs_db = true.
+- If the user says "list items" or "show items", treat as REVIEW and set needs_db = true.
+- For list/review requests, extract the plan name into plan_title (not item_title).
 - If the user asks for a new plan, set intent = "PLAN" and needs_db = false.
 - If the user says "list/show" + "items" (even if they mention "plan"), it is ALWAYS a REVIEW request.
 - If the previous intent was REVIEW (list items), and the user replies with only a plan title, keep intent = REVIEW and needs_db = true.
@@ -49,32 +52,32 @@ Rules:
 Examples:
 User: "List all my learning plans"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_PLANS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
 
 User: "List all learning plans"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_PLANS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
 
 User: "List all plans"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_PLANS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":null}
 
 User: "Can you list items for my Python plan?"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Python","item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Python","item_title":null}
 
 User: "List items for Learning Plan for HTML"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
 
 User: "Show me the React Learning Plan items"
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"React Learning Plan","item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"React Learning Plan","item_title":null}
 
 User: "Learning Plan for HTML"
 Context: last_intent = REVIEW
 Output:
-{"intent":"REVIEW","sub_intent":"LIST_ITEMS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
+{"intent":"REVIEW","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":"Learning Plan for HTML","item_title":null}
 
 User: "Create a plan to learn Ruby in 2 weeks"
 Output:
@@ -95,15 +98,15 @@ Output:
 
 User: "I started to learn Introduction to HTML"
 Output:
-{"intent":"LOG_PROGRESS","sub_intent":"UPDATE_STATUS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Introduction to HTML"}
+{"intent":"LOG_PROGRESS","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Introduction to HTML"}
 
 User: "I finished to learn Introduction to HTML"
 Output:
-{"intent":"LOG_PROGRESS","sub_intent":"UPDATE_STATUS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Introduction to HTML"}
+{"intent":"LOG_PROGRESS","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Introduction to HTML"}
 
 User: "I started Learn the basics of HTML, update status"
 Output:
-{"intent":"LOG_PROGRESS","sub_intent":"UPDATE_STATUS","needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Learn the basics of HTML"}
+{"intent":"LOG_PROGRESS","sub_intent":null,"needs_rag":false,"needs_web":false,"needs_db":true,"plan_title":null,"item_title":"Learn the basics of HTML"}
 
 User: "Quiz me on LangChain"
  Output:

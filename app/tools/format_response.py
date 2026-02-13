@@ -19,4 +19,5 @@ def format_response_node(state: GraphState) -> dict:
     """
     # implement different formatting logic if needed, e.g. based on intent or specialist type
     response = state.get("user_response") or state.get("specialist_output") or ""
-    return {"final_response": response}
+    # Preserve quiz_state for answer evaluation in subsequent turns.
+    return {"final_response": response, "quiz_state": state.get("quiz_state")}

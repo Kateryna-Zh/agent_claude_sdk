@@ -69,6 +69,7 @@ def chat(request: ChatRequest):
         "plan_draft": plan_draft,
         "plan_confirmed": False,
         "quiz_state": last_quiz_state,
+        "quiz_feedback": None,
         "last_intent": last_intent,
         "last_db_context": last_db_context,
         "sub_intent": "",
