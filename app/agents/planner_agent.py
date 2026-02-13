@@ -4,12 +4,12 @@ import json
 import logging
 
 from app.llm.ollama_client import get_chat_model
+from app.models.state import GraphState
 from app.prompts.planner import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 from app.schemas.planner import PlannerOutput
 from app.utils.llm_parse import parse_with_retry
 
 logger = logging.getLogger("uvicorn.error")
-from app.models.state import GraphState
 
 
 def planner_node(state: GraphState) -> dict:

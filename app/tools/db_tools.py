@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -309,7 +311,10 @@ def execute_tool(
         return err("unknown_tool", "Unknown tool", {"name": name})
     if args:
         allowed = set(spec.input_model.model_fields.keys())
-        args = {k: v for k, v in args.items() if k in allowed}
+        unexpected = [k for k in args.keys() if k not in allowed]
+        if unexpected:
+            fields = [{"field": key, "message": "Unexpected field"} for key in unexpected]
+            return err("validation_error", "Invalid tool input", {"fields": fields})
         args = _strip_extras(spec.input_model, args)
     try:
         data = spec.input_model.model_validate(args or {})
@@ -328,7 +333,6 @@ def _list_plan_items_impl(repo, db_context: dict[str, Any], plan_id: Any, plan_t
         plan_id = repo.get_latest_plan_id()
     if plan_id is None and plan_title:
         candidates = _find_plan_candidates(plans, plan_title)
-        candidate_ids = [c["plan_id"] for c in candidates]
         if candidates:
             db_context["requested_plan_title"] = plan_title
         for candidate in candidates:

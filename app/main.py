@@ -29,7 +29,7 @@ graph = build_graph()
 _PLAN_DRAFTS: dict[int, dict] = {}
 _SESSION_CACHE: dict[int, dict] = {}
 _SESSION_COUNTER = itertools.count(1)
- # TODO: Add a debug flag to toggle verbose flow logs (router/db_planner) for demos vs normal runs.
+# TODO: Add a debug flag to toggle verbose flow logs (router/db) for demos vs normal runs.
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -73,7 +73,6 @@ def chat(request: ChatRequest):
         "last_intent": last_intent,
         "last_db_context": last_db_context,
         "sub_intent": "",
-        "db_plan": [],
     }
 
     print("CHAT: state built", flush=True)

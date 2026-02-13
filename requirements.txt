@@ -13,3 +13,4 @@ uvicorn
 pydantic-settings
 pytest
 pytest-asyncio
+ruff

@@ -35,9 +35,7 @@ class GraphState(TypedDict):
     last_db_context : dict[str, Any] | None
         Cached DB context from the previous turn.
     sub_intent : str | None
-        Optional sub-intent for DB planning.
-    db_plan : list[dict[str, Any]]
-        Action plan for DB operations.
+        Optional sub-intent for DB operations.
     specialist_output : str
         Text produced by the specialist agent node.
     user_response : str
@@ -73,7 +71,6 @@ class GraphState(TypedDict):
     last_intent: str | None
     last_db_context: dict[str, Any] | None
     sub_intent: str | None
-    db_plan: list[dict[str, Any]]
     specialist_output: str
     user_response: str
     final_response: str

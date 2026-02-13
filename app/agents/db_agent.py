@@ -15,11 +15,10 @@ logger = logging.getLogger("uvicorn.error")
 
 #TODO: needs refactoring!
 def db_agent_node(state: GraphState) -> dict:
-    """Execute DB actions using tool-calling or db_plan fallback."""
+    """Execute DB actions using tool-calling or intent fallback."""
     db_context = state.get("db_context") or {}
 
     intent = state.get("intent")
-    sub_intent = state.get("sub_intent")
 
     # --- QUIZ intent: pre-fetch or post-save via tools ---
     if intent == "QUIZ":
@@ -171,7 +170,7 @@ def _format_tool_result_confirmation(tool_result: dict[str, Any]) -> str | None:
         elif name == "update_flashcard_review":
             confirmations.append(f"Flashcard {data.get('card_id')} review updated.")
         elif name == "save_message":
-            confirmations.append(f"Message saved.")
+            confirmations.append("Message saved.")
     return "\n".join(confirmations) if confirmations else None
 
 

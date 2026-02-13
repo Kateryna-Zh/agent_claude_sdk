@@ -2,9 +2,7 @@
 
 import logging
 
-from app.llm.ollama_client import get_chat_model
 from app.models.state import GraphState
-from app.prompts.research import RESEARCH_SYSTEM_PROMPT, RESEARCH_USER_PROMPT
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -24,7 +22,6 @@ def research_node(state: GraphState) -> dict:
         Partial state update with ``specialist_output``.
     """
     web_context = state.get("web_context", "")
-    user_input = state.get("user_input", "")
     if not web_context.strip():
         msg = "I couldn't find any web results to summarize for that question."
         logger.info("RESEARCH: no web_context")

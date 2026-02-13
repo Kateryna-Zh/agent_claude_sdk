@@ -21,11 +21,11 @@ Required env keys:
 Commands:
 - CLI check (read/write):
 ```bash
-python3 -m app.cli.mcp_check --message "hello from mcp test"
+python -m app.cli.mcp_check --message "hello from mcp test"
 ```
 - CLI check with cleanup:
 ```bash
-python3 -m app.cli.mcp_check --message "hello from mcp test" --cleanup
+python -m app.cli.mcp_check --message "hello from mcp test" --cleanup
 ```
 - MCP health endpoint:
 ```bash
@@ -40,7 +40,7 @@ Success criteria:
 Troubleshooting:
 - Use `--debug` to print raw MCP payloads and tool schema:
 ```bash
-python3 -m app.cli.mcp_check --message "hello" --debug
+python -m app.cli.mcp_check --message "hello" --debug
 ```
 - If you see parameter errors, confirm:
   - `MCP_QUERY_KEY=sql`
@@ -72,7 +72,7 @@ Key modules:
 - MCP repository: `app/db/mcp_repository.py`
 - psycopg2 repository: `app/db/repository.py`
 - backend selection: `app/db/repository_factory.py`
-- graph nodes: `app/tools/db_read.py`, `app/tools/db_write.py`
+- DB tools + registry: `app/tools/db_tools.py`, `app/tools/tool_registry.py`
 
 Config (MCP):
 - `MCP_SERVER_COMMAND` / `MCP_SERVER_ARGS` (pin version in args)
@@ -101,7 +101,7 @@ Notes:
 
 This project uses LangGraph for orchestration and LangChain for model calls and MCP client sessions. There is no LCEL pipe (`|`) usage; agents call the model directly with `llm.invoke(...)` and parse outputs with Pydantic.
 
-### Orchestration Flow
+### App Flow
 
 Entry point:
 - `app/graph/builder.py` builds the LangGraph state machine.
@@ -111,8 +111,27 @@ Routing logic:
 - `app/graph/routing.py` maps intent/flags to the next node.
 
 Execution path (simplified):
-- Router -> optional context tools (`retrieve_context`, `web_search`) -> specialist agent -> `format_response`
+- Router -> optional context tools (`retrieve_context`, `web_search`) -> specialist agent -> `format_response`.
 - DB reads/writes for plans and progress are handled by `db_agent` (tool-calling executor).
+- Quiz flow can round-trip to `db_agent` to persist results, then returns to `format_response`.
+
+### Agentic vs Deterministic
+
+This system is a hybrid: LLM-driven where judgment is needed, deterministic where safety and consistency matter.
+
+Agentic (LLM-driven):
+- Router intent classification (`router_agent.py`).
+- Plan drafting (`planner_agent.py`).
+- DB tool-calling decisions (`db_agent.py`) when tools are returned by the model.
+- Quiz generation, scoring, and feedback (`quiz_agent.py`).
+
+Deterministic guardrails:
+- Quiz fast-path routing for numbered A/B/C/D answers (skips LLM routing when a quiz is in progress).
+- Plan save gating: only save when intent is `PLAN` with `SAVE_PLAN` and a `plan_draft` exists.
+- DB fallback path if tool-calling returns nothing (intent-driven rules for REVIEW/LOG_PROGRESS).
+- Error normalization into user-facing messages (`validation_error`, `conflict`, `not_found`, `permission_denied`, `db_error`).
+- Strict top-level tool input validation (unexpected fields are rejected; nested extras are stripped).
+- Quiz post-save loop prevention and wrong-answer cleanup.
 
 ### Agents and Responsibilities
 
@@ -120,24 +139,37 @@ Router agent:
 - File: `app/agents/router_agent.py`
 - Uses the router prompt (`app/prompts/router.py`) to classify intents like PLAN, REVIEW, LOG_PROGRESS.
 - Sets `needs_db` and `sub_intent` so the graph knows which node to run next.
-- Includes follow-up handling for review flows (title-only replies after a list-items request).
+- Fast-path: if a quiz is in progress and the user replies with a numbered A/B/C/D answer, routing skips the LLM and goes straight to QUIZ evaluation.
 
 Planner agent:
 - File: `app/agents/planner_agent.py`
 - Generates a plan draft with structured JSON validated by `app/schemas/planner.py`.
 - Returns a Markdown summary to the user and a structured `plan_draft` for saving.
+- Drafts are cached per session; the router only confirms saving when intent is `PLAN` with `SAVE_PLAN`.
 
 DB agent (tool-calling executor):
 - File: `app/agents/db_agent.py`
-- Executes DB actions using native Ollama tool calling (with a fallback to `db_plan`).
+- Executes DB actions using native Ollama tool calling with an intent-based fallback.
 - Tools are defined in `app/tools/db_tools.py` and cover list/create/update operations.
 - Formats responses and handles duplicate titles using `created_at` for disambiguation.
-- Progress updates (`update_item_status`) are plan-scoped. If no plan is specified, the tool-calling model may guess a plan ID; if the item is not in that plan, the update returns `item_not_found`.
+- Progress updates (`update_item_status`) are plan-scoped. If no plan is specified, the tool-calling model may guess a plan ID; if the item is not in that plan, the update returns `not_found`.
+- Errors are normalized into user-facing messages: `validation_error`, `conflict`, `not_found`, `permission_denied`, `db_error`.
 
 Tutor, Quiz, Research agents:
 - Files: `app/agents/tutor_agent.py`, `app/agents/quiz_agent.py`, `app/agents/research_agent.py`
 - Tutor uses RAG context for explanations.
-- Quiz and Research flows are routed by the router intent.
+- Quiz flow details:
+- Starts when the router selects intent `QUIZ` and routes to `quiz` (or when a follow-up answer is detected and short-circuits to QUIZ).
+- If the topic is related to retrieved context, the agent uses RAG context to generate questions.
+- Detailed agentic quiz process:
+- Retrieve prior wrong questions from the DB (`db_agent` → `quiz_pre_fetch`) to seed the session.
+- Generate quiz questions (optionally grounded in RAG context when the topic is related).
+- Present questions and capture user answers.
+- Score answers and compute feedback (`quiz_feedback`).
+- Build a `quiz_save` payload containing wrong answers and correct retries.
+- If there are wrong answers, persist results to the DB (`db_agent` → `quiz_post_save`), which saves new wrong answers and deletes previously wrong answers now answered correctly.
+- Return to `format_response`; cache `quiz_state` and mark `quiz_results_saved` to avoid loops.
+- Research flow is routed by the router intent.
 
 ### Parsing and Schema Validation
 
@@ -149,7 +181,6 @@ Parsing utilities:
 Schemas:
 - Router: `app/schemas/router.py`
 - Planner: `app/schemas/planner.py`
-- DB plans are validated via `DBPlanOutput` (router schema module).
 
 ### MCP Integration in Agents
 
@@ -159,4 +190,4 @@ MCP client usage:
 
 DB execution flow:
 - Planner creates a draft.
-- On confirmation, DB agent writes the plan (`create_plan` + `add_plan_item`) and formats the response.
+- On confirmation, DB agent writes the plan via tools and formats the response.
