@@ -433,6 +433,17 @@ def get_langchain_tools(db_context: dict[str, Any], repo=None):
         model_config = ConfigDict(extra="allow")
         kwargs: Any | None = None
 
+    def _sanitize_tool_args(tool_name: str, raw_args: Any) -> dict[str, Any]:
+        """Keep only declared fields for a tool; ignore LLM-invented extras."""
+        if not isinstance(raw_args, dict):
+            return {}
+        spec = get_tool(tool_name)
+        if spec is None:
+            return {}
+        allowed = set(spec.input_model.model_fields.keys())
+        filtered = {k: v for k, v in raw_args.items() if k in allowed}
+        return _strip_extras(spec.input_model, filtered)
+
     def _wrap(tool_name: str):
         def _tool(**kwargs):
             kwargs.pop("db_context", None)
@@ -446,6 +457,7 @@ def get_langchain_tools(db_context: dict[str, Any], repo=None):
                         parsed = None
                     if isinstance(parsed, dict):
                         kwargs = parsed
+            kwargs = _sanitize_tool_args(tool_name, kwargs)
             return execute_tool(tool_name, kwargs, db_context, repo=repo)
 
         _tool.__doc__ = f"DB tool wrapper for {tool_name}."
