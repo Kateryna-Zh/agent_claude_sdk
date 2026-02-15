@@ -14,6 +14,13 @@ from app.prompts.quiz import (
     QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT,
     QUIZ_RAG_RELEVANCE_USER_PROMPT,
 )
+from app.utils.constants import (
+    LINE_START_ANSWER_RE,
+    MIN_KEYWORD_OVERLAP,
+    NUMBERED_ANSWER_RE,
+    STOPWORDS,
+)
+from app.utils.llm_helpers import invoke_llm
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -36,25 +43,9 @@ def quiz_node(state: GraphState) -> dict:
     db_context = state.get("db_context") or {}
     rag_context = state.get("rag_context", "")
 
-    evaluation = _extract_evaluation_payload(user_input)
-    if evaluation:
-        prompt = QUIZ_EVALUATE_SYSTEM_PROMPT + "\n\n" + QUIZ_EVALUATE_USER_PROMPT.format(
-            question=evaluation["question"],
-            correct_answer=evaluation["correct_answer"],
-            user_answer=evaluation["user_answer"],
-        )
-        llm = get_chat_model()
-        logger.info("Quiz evaluation LLM call started")
-        response = llm.invoke(prompt)
-        logger.info("Quiz evaluation LLM call finished")
-        content = getattr(response, "content", str(response)).strip()
-        logger.info("quiz_node: next_action=format_response (evaluation)")
-        print("quiz_node next_action -> format_response (evaluation)")
-        return {
-            "user_response": content,
-            "specialist_output": content,
-            "quiz_next_action": "format_response",
-        }
+    evaluation_result = _handle_evaluation(user_input)
+    if evaluation_result is not None:
+        return evaluation_result
 
     quiz_state = state.get("quiz_state") or {}
     answer_key = quiz_state.get("answer_key") or {}
@@ -65,103 +56,149 @@ def quiz_node(state: GraphState) -> dict:
             "Please ask for a new quiz or paste the answer key."
         )
         logger.info("quiz_node: next_action=format_response (missing answer key)")
-        print("quiz_node next_action -> format_response (missing answer key)")
         return {
             "user_response": content,
             "specialist_output": content,
             "quiz_next_action": "format_response",
         }
     if answer_key and user_answers:
-        score, details, missing = _score_answers(answer_key, user_answers)
-        lines = [f"Score: {score:.2f}"]
-        correct_lines = []
-        wrong_lines = []
-        missing_lines = []
-        for entry in details:
-            status = entry.get("status")
-            if status == "error":
-                lines.append(entry.get("message", "Scoring error."))
-                continue
-            number = entry.get("number")
-            got = entry.get("got")
-            expected = entry.get("expected")
-            if status == "correct":
-                correct_lines.append(f"{number}. ✅ ({got})")
-            elif status == "wrong":
-                wrong_lines.append(f"{number}. ❌ (you: {got}, correct: {expected})")
-            elif status == "missing":
-                missing_lines.append(f"{number}. ⚠️ (no key; you answered {got})")
-        if correct_lines:
-            lines.append("Correct:")
-            lines.extend(correct_lines)
-        if wrong_lines:
-            lines.append("Wrong:")
-            lines.extend(wrong_lines)
-        if missing_lines:
-            lines.append("No answer key:")
-            lines.extend(missing_lines)
-        if missing:
-            lines.append(
-                "Warning: Missing answer key entries for: "
-                + ", ".join(str(n) for n in missing)
-                + "."
-            )
-        lines.append("Answer key: " + _format_answer_key(answer_key))
-        content = "\n".join(lines).strip()
+        return _handle_scoring(quiz_state, answer_key, user_answers, db_context)
 
-        # Build quiz_save payload for db_agent
-        quiz_save = _build_quiz_save(
-            quiz_state, answer_key, user_answers,
-        )
-        if quiz_save:
-            db_context["quiz_save"] = quiz_save
-
-        next_action = "db" if quiz_save else "format_response"
-        logger.info("quiz_node: next_action=%s (scoring)", next_action)
-        print(f"quiz_node next_action -> {next_action} (scoring)")
-        return {
-            "user_response": content,
-            "specialist_output": content,
-            "quiz_state": None,
-            "db_context": db_context,
-            "quiz_feedback": content,
-            "quiz_next_action": next_action,
-        }
-
-    # Format wrong questions from db_context for the prompt
     wrong_questions_raw = db_context.get("wrong_questions") or []
     wrong_questions_text = _format_wrong_questions(wrong_questions_raw)
-    topic_id = db_context.get("quiz_topic_id")
     topic_name = db_context.get("quiz_topic_name")
 
-    # Agentic KB relevance check: drop rag_context if it doesn't match topic.
-    if rag_context.strip():
-        topic_hint = (topic_name or user_input).strip().lower()
-        if topic_hint and topic_hint in rag_context.lower():
-            logger.info("quiz_node: rag_context kept (topic match)")
-            print("quiz_node rag_context -> kept (topic match)")
-        else:
-            relevance_prompt = (
-                QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT
-                + "\n\n"
-                + QUIZ_RAG_RELEVANCE_USER_PROMPT.format(
-                    user_input=user_input,
-                    rag_context=rag_context,
-                )
-            )
-            llm = get_chat_model()
-            logger.info("Quiz RAG relevance check started")
-            relevance_resp = llm.invoke(relevance_prompt)
-            logger.info("Quiz RAG relevance check finished")
-            relevance = getattr(relevance_resp, "content", str(relevance_resp)).strip().upper()
-            if not relevance.startswith("YES"):
-                rag_context = ""
-                logger.info("quiz_node: rag_context dropped (relevance=%s)", relevance)
-                print(f"quiz_node rag_context -> dropped (relevance={relevance})")
-            else:
-                logger.info("quiz_node: rag_context kept (relevance=YES)")
-                print("quiz_node rag_context -> kept (relevance=YES)")
+    rag_context = _check_rag_relevance(rag_context, topic_name, user_input)
 
+    return _generate_quiz(
+        user_input, rag_context, wrong_questions_text, db_context, wrong_questions_raw,
+    )
+
+
+def _handle_evaluation(user_input: str) -> dict | None:
+    """Check for evaluation payload, invoke LLM, return result."""
+    evaluation = _extract_evaluation_payload(user_input)
+    if not evaluation:
+        return None
+    prompt = QUIZ_EVALUATE_SYSTEM_PROMPT + "\n\n" + QUIZ_EVALUATE_USER_PROMPT.format(
+        question=evaluation["question"],
+        correct_answer=evaluation["correct_answer"],
+        user_answer=evaluation["user_answer"],
+    )
+    logger.info("Quiz evaluation LLM call started")
+    content = invoke_llm(prompt)
+    logger.info("Quiz evaluation LLM call finished")
+    logger.info("quiz_node: next_action=format_response (evaluation)")
+    return {
+        "user_response": content,
+        "specialist_output": content,
+        "quiz_next_action": "format_response",
+    }
+
+
+def _handle_scoring(
+    quiz_state: dict[str, Any],
+    answer_key: dict[int, str],
+    user_answers: dict[int, str],
+    db_context: dict[str, Any],
+) -> dict:
+    """Score answers, build quiz_save payload."""
+    score, details, missing = _score_answers(answer_key, user_answers)
+    lines = [f"Score: {score:.2f}"]
+    correct_lines = []
+    wrong_lines = []
+    missing_lines = []
+    for entry in details:
+        status = entry.get("status")
+        if status == "error":
+            lines.append(entry.get("message", "Scoring error."))
+            continue
+        number = entry.get("number")
+        got = entry.get("got")
+        expected = entry.get("expected")
+        if status == "correct":
+            correct_lines.append(f"{number}. ✅ ({got})")
+        elif status == "wrong":
+            wrong_lines.append(f"{number}. ❌ (you: {got}, correct: {expected})")
+        elif status == "missing":
+            missing_lines.append(f"{number}. ⚠️ (no key; you answered {got})")
+    if correct_lines:
+        lines.append("Correct:")
+        lines.extend(correct_lines)
+    if wrong_lines:
+        lines.append("Wrong:")
+        lines.extend(wrong_lines)
+    if missing_lines:
+        lines.append("No answer key:")
+        lines.extend(missing_lines)
+    if missing:
+        lines.append(
+            "Warning: Missing answer key entries for: "
+            + ", ".join(str(n) for n in missing)
+            + "."
+        )
+    lines.append("Answer key: " + _format_answer_key(answer_key))
+    content = "\n".join(lines).strip()
+
+    # Build quiz_save payload for db_agent
+    quiz_save = _build_quiz_save(
+        quiz_state, answer_key, user_answers,
+    )
+    if quiz_save:
+        db_context["quiz_save"] = quiz_save
+
+    next_action = "db" if quiz_save else "format_response"
+    logger.info("quiz_node: next_action=%s (scoring)", next_action)
+    return {
+        "user_response": content,
+        "specialist_output": content,
+        "quiz_state": None,
+        "db_context": db_context,
+        "quiz_feedback": content,
+        "quiz_next_action": next_action,
+    }
+
+
+def _check_rag_relevance(rag_context: str, topic_name: str | None, user_input: str) -> str:
+    """Two-pass relevance filter: fast substring match, then LLM judgment.
+
+    First checks if the topic name appears directly in the RAG context (fast path).
+    If not found, asks the LLM to judge whether the context is relevant to the
+    user's quiz request. Returns the original rag_context if relevant, or empty
+    string if not.
+    """
+    if not rag_context.strip():
+        return rag_context
+    topic_hint = (topic_name or user_input).strip().lower()
+    if topic_hint and topic_hint in rag_context.lower():
+        logger.info("quiz_node: rag_context kept (topic match)")
+        return rag_context
+    relevance_prompt = (
+        QUIZ_RAG_RELEVANCE_SYSTEM_PROMPT
+        + "\n\n"
+        + QUIZ_RAG_RELEVANCE_USER_PROMPT.format(
+            user_input=user_input,
+            rag_context=rag_context,
+        )
+    )
+    logger.info("Quiz RAG relevance check started")
+    relevance = invoke_llm(relevance_prompt).upper()
+    logger.info("Quiz RAG relevance check finished")
+    if not relevance.startswith("YES"):
+        logger.info("quiz_node: rag_context dropped (relevance=%s)", relevance)
+        return ""
+    logger.info("quiz_node: rag_context kept (relevance=YES)")
+    return rag_context
+
+
+def _generate_quiz(
+    user_input: str,
+    rag_context: str,
+    wrong_questions_text: str,
+    db_context: dict[str, Any],
+    wrong_questions_raw: list[dict[str, Any]],
+) -> dict:
+    """Generate quiz, extract/retry answer key."""
     prompt = QUIZ_GENERATE_SYSTEM_PROMPT + "\n\n" + QUIZ_GENERATE_USER_PROMPT.format(
         user_input=user_input,
         rag_context=rag_context,
@@ -169,13 +206,15 @@ def quiz_node(state: GraphState) -> dict:
     )
     llm = get_chat_model()
     logger.info("Quiz generation LLM call started")
-    response = llm.invoke(prompt)
+    content = invoke_llm(prompt, llm)
     logger.info("Quiz generation LLM call finished")
-    content = getattr(response, "content", str(response)).strip()
     generated_answer_key = _extract_answer_key(content)
     question_count = _count_questions(content)
+    # Two-stage answer key recovery:
+    # 1. Ask the LLM to produce just the answer key for the generated quiz.
     if not generated_answer_key or (question_count and len(generated_answer_key) != question_count):
         content, generated_answer_key = _retry_append_answer_key(llm, content, question_count)
+    # 2. If still mismatched, regenerate the entire quiz as MCQ-only with a strict format.
     if question_count and len(generated_answer_key) != question_count:
         content, generated_answer_key = _retry_regenerate_mcq_only(llm, user_input, question_count, rag_context)
         question_count = _count_questions(content)
@@ -184,6 +223,8 @@ def quiz_node(state: GraphState) -> dict:
     # Track which generated questions correspond to retry attempt_ids
     retry_attempt_ids = _match_retry_questions(display_text, wrong_questions_raw)
 
+    topic_id = db_context.get("quiz_topic_id")
+    topic_name = db_context.get("quiz_topic_name")
     quiz_state_update = {
         "answer_key": generated_answer_key,
         "quiz_text": display_text,
@@ -193,7 +234,6 @@ def quiz_node(state: GraphState) -> dict:
         "retry_attempt_ids": retry_attempt_ids,
     }
     logger.info("quiz_node: next_action=format_response (generation)")
-    print("quiz_node next_action -> format_response (generation)")
     return {
         "user_response": display_text,
         "specialist_output": display_text,
@@ -241,23 +281,21 @@ def _extract_answer_key(text: str) -> dict[int, str]:
     else:
         key_block = text
 
-    inline_pattern = r"(\d+)\s*[\).:-]?\s*([A-D])"
-    for match in re.finditer(inline_pattern, key_block, flags=re.IGNORECASE):
+    for match in NUMBERED_ANSWER_RE.finditer(key_block):
         number = int(match.group(1))
         letter = match.group(2).upper()
         answer_key[number] = letter
 
     if not answer_key:
-        line_pattern = re.compile(r"^\s*(\d+)\s*[:\)\.\-]\s*([A-D])\b", re.IGNORECASE)
         for line in lines:
-            match = line_pattern.search(line)
+            match = LINE_START_ANSWER_RE.search(line)
             if match:
                 number = int(match.group(1))
                 letter = match.group(2).upper()
                 answer_key[number] = letter
 
     if not answer_key:
-        for match in re.finditer(inline_pattern, text, flags=re.IGNORECASE):
+        for match in NUMBERED_ANSWER_RE.finditer(text):
             number = int(match.group(1))
             letter = match.group(2).upper()
             answer_key[number] = letter
@@ -267,7 +305,7 @@ def _extract_answer_key(text: str) -> dict[int, str]:
 
 def _parse_answer_list(text: str) -> dict[int, str]:
     answers: dict[int, str] = {}
-    for match in re.finditer(r"(\d+)\s*[\).:-]?\s*([A-D])", text, flags=re.IGNORECASE):
+    for match in NUMBERED_ANSWER_RE.finditer(text):
         answers[int(match.group(1))] = match.group(2).upper()
     return answers
 
@@ -336,9 +374,8 @@ def _retry_append_answer_key(llm, quiz_text: str, question_count: int | None) ->
         f"{quiz_text}"
     )
     logger.info("Quiz answer key retry LLM call started")
-    response = llm.invoke(prompt)
+    key_text = invoke_llm(prompt, llm)
     logger.info("Quiz answer key retry LLM call finished")
-    key_text = getattr(response, "content", str(response)).strip()
     answer_key = _extract_answer_key(key_text)
     if answer_key:
         if "answer key" not in quiz_text.lower():
@@ -362,9 +399,8 @@ def _retry_regenerate_mcq_only(llm, user_input: str, question_count: int | None,
         f"{context_block}"
     )
     logger.info("Quiz regeneration LLM call started")
-    response = llm.invoke(prompt)
+    quiz_text = invoke_llm(prompt, llm)
     logger.info("Quiz regeneration LLM call finished")
-    quiz_text = getattr(response, "content", str(response)).strip()
     answer_key = _extract_answer_key(quiz_text)
     return quiz_text, answer_key
 
@@ -420,7 +456,8 @@ def _match_retry_questions(
         wq_text = (wq.get("question") or "").lower()
         if not wq_text or not attempt_id:
             continue
-        wq_words = set(re.findall(r"\w+", wq_text)) - {"the", "a", "an", "is", "of", "in", "to", "and", "or"}
+        # Remove common stopwords to focus overlap on meaningful content words.
+        wq_words = set(re.findall(r"\w+", wq_text)) - STOPWORDS
         best_num = None
         best_overlap = 0
         for num, gen_text in generated.items():
@@ -431,7 +468,8 @@ def _match_retry_questions(
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_num = num
-        if best_num is not None and best_overlap >= 2:
+        # Require at least MIN_KEYWORD_OVERLAP matching words to consider it a retry.
+        if best_num is not None and best_overlap >= MIN_KEYWORD_OVERLAP:
             retry_map[best_num] = attempt_id
 
     return retry_map

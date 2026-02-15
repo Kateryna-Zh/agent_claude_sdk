@@ -13,7 +13,12 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Run tests
 pytest tests/ -v
-pytest -m integration tests/    # integration tests only (need local services)
+pytest tests/test_router.py -v           # single test file
+pytest tests/test_router.py::test_name -v # single test
+pytest -m integration tests/              # integration tests only (need local services)
+
+# Lint
+ruff check app/ tests/
 
 # Ingest knowledge base into ChromaDB
 python scripts/ingest_kb.py              # append
@@ -58,6 +63,7 @@ The **router** (`app/agents/router_agent.py`) classifies each user message into 
 - **Tool-calling agent**: `db_agent` binds LangChain `StructuredTool`s to the LLM for DB operations, with an intent-driven fallback path if tool-calling returns nothing.
 - **Plan draft flow**: Planner creates a draft → stored in `_PLAN_DRAFTS` (in-memory, keyed by session_id) → user confirms → router sets `PLAN/SAVE_PLAN` → db agent writes to DB.
 - **Session state**: `_SESSION_CACHE` in `main.py` persists `last_intent`, `last_db_context`, and `quiz_state` across turns.
+- **Shared utilities**: `app/utils/llm_helpers.py` (`invoke_llm()` used by all agents), `app/utils/constants.py` (compiled regexes, stopwords, thresholds), `app/db/row_extract.py` (canonical MCP row extraction shared by `mcp_repository` and `mcp_check`).
 - **LLM output parsing**: `app/utils/llm_parse.py` extracts JSON from LLM text, validates against Pydantic schemas, and retries with a correction prompt on failure.
 
 ### State Model
@@ -77,6 +83,20 @@ Defined in `db/init.sql`: sessions, messages, topics, study_plan, plan_items, qu
 All config via `.env` (see `.env.example`). Loaded by Pydantic `BaseSettings` in `app/config.py`.
 
 Key settings: `DB_BACKEND` (mcp|psycopg2), `PG_PORT` (default 5433), `MCP_SUPPORTS_PARAMS` (false for pg-mcp-server), `MCP_FALLBACK_TO_PSYCOPG2` (true).
+
+Timeout settings: `OLLAMA_TIMEOUT_SECONDS` (30), `CHAT_TIMEOUT_SECONDS` (15, graph execution), `DB_TOOL_TIMEOUT_SECONDS` (4).
+
+## Testing
+
+- Unit tests run without external services; integration tests (marked `@pytest.mark.integration`) need PostgreSQL, Ollama, and ChromaDB running.
+- Tests use `FakeRepo` for repository mocking and `monkeypatch` for LLM stubbing.
+- Graph runs in a `ThreadPoolExecutor` (single worker) with `CHAT_TIMEOUT_SECONDS` enforced at the executor level.
+
+## Notable Directories
+
+- `kb/` — Markdown knowledge base files ingested into ChromaDB for RAG.
+- `specs/` — Design documents and refactoring specs (useful context for understanding past decisions).
+- `chroma_data/` — ChromaDB persistence (gitignored).
 
 ## Prerequisites
 

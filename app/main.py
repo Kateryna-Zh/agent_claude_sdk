@@ -29,7 +29,6 @@ graph = build_graph()
 _PLAN_DRAFTS: dict[int, dict] = {}
 _SESSION_CACHE: dict[int, dict] = {}
 _SESSION_COUNTER = itertools.count(1)
-# TODO: Add a debug flag to toggle verbose flow logs (router/db) for demos vs normal runs.
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -38,11 +37,11 @@ def chat(request: ChatRequest):
 
     Invokes the LangGraph compiled graph and returns the assistant reply.
     """
-    print("CHAT HIT", flush=True)
-    print("CHAT: building state", flush=True)
+    logger.info("Chat endpoint hit")
+    logger.info("Building graph state")
     if settings.db_backend.lower() == "mcp":
         session_id = request.session_id or next(_SESSION_COUNTER)
-        print(f"CHAT use mcp: using session_id={session_id}", flush=True)
+        logger.info("MCP backend: session_id=%s", session_id)
     else:
         repo = get_repository()
         session_id = request.session_id or repo.create_session()
@@ -75,9 +74,7 @@ def chat(request: ChatRequest):
         "sub_intent": "",
     }
 
-    print("CHAT: state built", flush=True)
     logger.info("Graph invoke started")
-    print("CHAT: graph invoke start", flush=True)
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(graph.invoke, state_input)
@@ -86,7 +83,6 @@ def chat(request: ChatRequest):
             )
             if not done:
                 logger.error("Graph invoke timed out")
-                print("CHAT: graph invoke timeout", flush=True)
                 raise HTTPException(
                     status_code=504, detail="Chat processing timed out"
                 )
@@ -95,7 +91,6 @@ def chat(request: ChatRequest):
         logger.error("Graph invoke timed out")
         raise HTTPException(status_code=504, detail="Chat processing timed out") from exc
     logger.info("Graph invoke finished")
-    print("CHAT: graph invoke finished", flush=True)
     reply = result.get("final_response") or result.get("user_response") or ""
 
     if result.get("plan_confirmed"):

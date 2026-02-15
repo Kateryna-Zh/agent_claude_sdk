@@ -76,13 +76,10 @@ def route_after_quiz(state: GraphState) -> str:
     quiz_next = state.get("quiz_next_action")
     if quiz_next in {"db", "format_response"}:
         logger.info("route_after_quiz: quiz_next_action=%s", quiz_next)
-        print(f"route_after_quiz -> {quiz_next}")
         return quiz_next
     db_context = state.get("db_context") or {}
     if db_context.get("quiz_save"):
         logger.info("route_after_quiz: inferred db (quiz_save present)")
-        print("route_after_quiz -> db (quiz_save)")
         return "db"
     logger.info("route_after_quiz: default format_response")
-    print("route_after_quiz -> format_response")
     return "format_response"

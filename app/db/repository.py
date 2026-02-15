@@ -10,6 +10,15 @@ from app.db.connection import get_connection, put_connection
 
 
 def _execute(sql: str, params: list[Any] | None = None, *, fetch: str | None = None):
+    """Execute a SQL statement with optional result fetching.
+
+    *fetch* controls what is returned:
+    - ``"one"``  — ``fetchone()`` (single row dict or None)
+    - ``"all"``  — ``fetchall()`` (list of row dicts)
+    - ``None``   — execute only, return None (for INSERT/UPDATE/DELETE without RETURNING)
+
+    On error the transaction is rolled back and the exception re-raised.
+    """
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -156,6 +165,7 @@ def save_quiz_attempt(
         fetch="one",
     )
     return int(row["attempt_id"])
+
 def get_weak_topics(limit: int = 5) -> list[dict[str, Any]]:
     """Return topics with lowest average quiz scores."""
     return _execute(

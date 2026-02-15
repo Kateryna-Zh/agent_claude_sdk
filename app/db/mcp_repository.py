@@ -7,7 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.config import settings
-
+from app.db.row_extract import extract_rows as _extract_rows
 from app.mcp.client import MCPClient
 
 
@@ -158,6 +158,12 @@ class MCPRepository:
         )
 
     def _execute(self, sql: str, params: list[Any] | None = None) -> Any:
+        """Convert parameter placeholders and dispatch the query to MCP.
+
+        When ``MCP_SUPPORTS_PARAMS`` is false, parameters are inlined into the
+        SQL string via ``_inline_params``. Otherwise, ``%s`` placeholders are
+        converted to ``$N`` dollar-style parameters for pg-mcp-server.
+        """
         params = params or []
         if params and not settings.mcp_supports_params:
             sql = _inline_params(sql, params)
@@ -177,6 +183,7 @@ class MCPRepository:
 
 
 def _to_dollar_params(sql: str) -> str:
+    """Convert ``%s`` placeholders to ``$1``, ``$2``, … for pg-mcp-server."""
     parts = sql.split("%s")
     if len(parts) == 1:
         return sql
@@ -189,6 +196,11 @@ def _to_dollar_params(sql: str) -> str:
 
 
 def _inline_params(sql: str, params: list[Any]) -> str:
+    """Inline parameters directly into SQL when ``MCP_SUPPORTS_PARAMS`` is false.
+
+    Each ``%s`` placeholder is replaced with the SQL-literal representation of
+    the corresponding parameter, so the final query string is fully self-contained.
+    """
     parts = sql.split("%s")
     if len(parts) == 1:
         return sql
@@ -203,6 +215,12 @@ def _inline_params(sql: str, params: list[Any]) -> str:
 
 
 def _literal(value: Any) -> str:
+    """Convert a Python value to its SQL literal representation.
+
+    Handles None → NULL, bools, numerics, dates (ISO-8601), lists/tuples
+    (ARRAY[…]), dicts (JSON string), and falls back to single-quoted strings
+    with escaped single quotes.
+    """
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -221,15 +239,3 @@ def _literal(value: Any) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def _extract_rows(payload: Any) -> list[dict[str, Any]]:
-    if payload is None:
-        return []
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, dict)]
-    if isinstance(payload, dict):
-        for key in ("rows", "data", "result", "results"):
-            if key in payload and isinstance(payload[key], list):
-                return [row for row in payload[key] if isinstance(row, dict)]
-        if "row" in payload and isinstance(payload["row"], dict):
-            return [payload["row"]]
-    return []

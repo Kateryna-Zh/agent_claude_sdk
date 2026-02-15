@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 def extract_payload(result: Any) -> Any:
+    """Extract usable data from an MCP tool result.
+
+    Tries three strategies in order:
+    1. ``structuredContent`` attribute — returned directly as structured data.
+    2. Text content items → joined and JSON-parsed into a dict/list.
+    3. Fallback — wraps the raw text in a ``{"text": …}`` dict.
+    """
     structured = getattr(result, "structuredContent", None)
     if structured is not None:
         return structured

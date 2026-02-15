@@ -44,6 +44,11 @@ def _conflict(entity_type: str, candidates: list[dict[str, Any]]) -> ToolResult:
 
 
 def _strip_extras(model: type[BaseModel], payload: Any) -> Any:
+    """Recursively strip fields not declared in the Pydantic model.
+
+    Walks nested ``BaseModel`` and ``list[BaseModel]`` fields so that only
+    declared attributes survive at every level of the payload dict.
+    """
     if not isinstance(payload, dict):
         return payload
     allowed = set(model.model_fields.keys())
@@ -53,10 +58,12 @@ def _strip_extras(model: type[BaseModel], payload: Any) -> Any:
             continue
         value = cleaned[field_name]
         annotation = field_info.annotation
+        # Nested BaseModel — recurse into the dict value.
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             if isinstance(value, dict):
                 cleaned[field_name] = _strip_extras(annotation, value)
             continue
+        # list[BaseModel] — recurse into each dict element.
         origin = get_origin(annotation)
         if origin is list:
             args = get_args(annotation)
@@ -367,8 +374,8 @@ def _find_plan_candidates(plans: list[dict[str, Any]], plan_title: str) -> list[
             contains.append(plan)
     candidates = exact + contains
     return [
-        {"plan_id": p.get("plan_id"), "title": p.get("title"), "created_at": p.get("created_at")}
-        for p in candidates
+        {"plan_id": candidate.get("plan_id"), "title": candidate.get("title"), "created_at": candidate.get("created_at")}
+        for candidate in candidates
     ]
 
 def _resolve_plan_from_args(
@@ -412,8 +419,8 @@ def _find_item_candidates(repo, plan_id: int, item_title: str) -> list[dict[str,
             contains.append(item)
     candidates = exact + contains
     return [
-        {"item_id": i.get("item_id"), "title": i.get("title"), "plan_id": plan_id}
-        for i in candidates
+        {"item_id": candidate.get("item_id"), "title": candidate.get("title"), "plan_id": plan_id}
+        for candidate in candidates
     ]
 
 

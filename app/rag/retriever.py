@@ -20,6 +20,10 @@ def get_retriever():
         persist_directory=settings.chroma_persist_dir,
         embedding_function=embeddings,
     )
+    # search_type="mmr" (Maximal Marginal Relevance) balances relevance with
+    # diversity so retrieved chunks cover different aspects of the query.
+    # fetch_k=12 fetches twice as many candidates as the final k=6 to give
+    # the MMR re-ranker enough material to select diverse results from.
     return chroma.as_retriever(
         search_type="mmr",
         search_kwargs={"k": 6, "fetch_k": 12},

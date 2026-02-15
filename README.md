@@ -72,6 +72,7 @@ Key modules:
 - MCP repository: `app/db/mcp_repository.py`
 - psycopg2 repository: `app/db/repository.py`
 - backend selection: `app/db/repository_factory.py`
+- MCP row extraction: `app/db/row_extract.py`
 - DB tools + registry: `app/tools/db_tools.py`, `app/tools/tool_registry.py`
 
 Config (MCP):
@@ -99,7 +100,7 @@ Notes:
 
 ## Agents, Routing, and Orchestration (LangGraph + LangChain)
 
-This project uses LangGraph for orchestration and LangChain for model calls and MCP client sessions. There is no LCEL pipe (`|`) usage; agents call the model directly with `llm.invoke(...)` and parse outputs with Pydantic.
+This project uses LangGraph for orchestration and LangChain for model calls and MCP client sessions. There is no LCEL pipe (`|`) usage; agents use a shared `invoke_llm()` helper (`app/utils/llm_helpers.py`) and parse outputs with Pydantic.
 
 ### App Flow
 
@@ -132,6 +133,7 @@ Deterministic guardrails:
 - Error normalization into user-facing messages (`validation_error`, `conflict`, `not_found`, `permission_denied`, `db_error`).
 - Strict top-level tool input validation (unexpected fields are rejected; nested extras are stripped).
 - Quiz post-save loop prevention and wrong-answer cleanup.
+- Research agent summaries are deterministic (formatting `web_context` without LLM summarization).
 
 ### Agents and Responsibilities
 
@@ -170,13 +172,15 @@ Tutor, Quiz, Research agents:
 - If there are wrong answers, persist results to the DB (`db_agent` → `quiz_post_save`), which saves new wrong answers and deletes previously wrong answers now answered correctly.
 - Return to `format_response`; cache `quiz_state` and mark `quiz_results_saved` to avoid loops.
 - Research flow is routed by the router intent.
+- Research agent is currently deterministic: it formats and summarizes `web_context` results without an LLM to reduce hallucinations.
+- Future option: re-enable LLM summarization for a more agentic research flow (with tests/guardrails).
 
 ### Parsing and Schema Validation
 
-Parsing utilities:
-- File: `app/utils/llm_parse.py`
-- LLM outputs are parsed and validated with Pydantic schemas.
-- Includes sanitization and JSON extraction for robustness.
+Parsing and shared utilities:
+- `app/utils/llm_parse.py` — LLM output parsing and validation with Pydantic schemas; includes sanitization and JSON extraction for robustness.
+- `app/utils/llm_helpers.py` — shared `invoke_llm()` helper used by all agents for model invocation.
+- `app/utils/constants.py` — shared regex patterns (answer parsing, quiz fast-path detection) and magic values.
 
 Schemas:
 - Router: `app/schemas/router.py`
@@ -191,3 +195,18 @@ MCP client usage:
 DB execution flow:
 - Planner creates a draft.
 - On confirmation, DB agent writes the plan via tools and formats the response.
+
+### RAG (ChromaDB Knowledge Base)
+
+RAG overview:
+- Retrieval uses ChromaDB (`app/rag/retriever.py`) with Ollama embeddings.
+- Knowledge base files live in `kb/` and are ingested via `app/rag/ingest.py`.
+- The retriever queries the `knowledge_base` collection in `./chroma_data`.
+- Retrieval uses MMR with `k=6` and `fetch_k=12`.
+- The `retrieve_context` tool populates `rag_context` for tutor/quiz flows.
+
+Current KB topics:
+- `kb/langchain.md`
+- `kb/langgraph.md`
+- `kb/links.md`
+- `kb/python_interview.md`

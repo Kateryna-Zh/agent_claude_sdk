@@ -13,7 +13,6 @@ from app.tools.db_tools import execute_tool, get_langchain_tools
 
 logger = logging.getLogger("uvicorn.error")
 
-#TODO: needs refactoring!
 def db_agent_node(state: GraphState) -> dict:
     """Execute DB actions using tool-calling or intent fallback."""
     db_context = state.get("db_context") or {}
@@ -65,6 +64,34 @@ def db_agent_node(state: GraphState) -> dict:
 
 
 
+def _patch_list_plan_items_args(args: dict[str, Any], db_context: dict[str, Any]) -> dict[str, Any]:
+    """Fill in plan_id/title from db_context when LLM omitted them."""
+    if args.get("plan_id") or args.get("plan_title"):
+        return args
+    if db_context.get("requested_plan_id") is not None:
+        return {"plan_id": db_context.get("requested_plan_id")}
+    if db_context.get("requested_plan_title"):
+        return {"plan_title": db_context.get("requested_plan_title")}
+    return args
+
+
+def _patch_write_plan_args(args: dict[str, Any], state: GraphState) -> dict[str, Any] | None:
+    """Ensure write_plan has full draft payload; return None to skip."""
+    if not state.get("plan_confirmed"):
+        logger.info("Skipping write_plan (plan not confirmed).")
+        return None
+    if not isinstance(args.get("items"), list):
+        plan_draft = state.get("plan_draft") or {}
+        args = {
+            "title": plan_draft.get("title") or args.get("title"),
+            "items": plan_draft.get("items") or [],
+        }
+        if not isinstance(args.get("items"), list):
+            logger.info("Skipping write_plan (invalid items payload).")
+            return None
+    return args
+
+
 def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str, Any] | None:
     tools = get_langchain_tools(db_context)
     system = (
@@ -104,24 +131,12 @@ def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str
     for call in tool_calls:
         name = call.get("name")
         args = call.get("args") or {}
-        if name == "list_plan_items" and not (args.get("plan_id") or args.get("plan_title")):
-            if db_context.get("requested_plan_id") is not None:
-                args = {"plan_id": db_context.get("requested_plan_id")}
-            elif db_context.get("requested_plan_title"):
-                args = {"plan_title": db_context.get("requested_plan_title")}
-        if name == "write_plan":
-            if not state.get("plan_confirmed"):
-                logger.info("Skipping write_plan (plan not confirmed).")
+        if name == "list_plan_items":
+            args = _patch_list_plan_items_args(args, db_context)
+        elif name == "write_plan":
+            args = _patch_write_plan_args(args, state)
+            if args is None:
                 continue
-            if not isinstance(args.get("items"), list):
-                plan_draft = state.get("plan_draft") or {}
-                args = {
-                    "title": plan_draft.get("title") or args.get("title"),
-                    "items": plan_draft.get("items") or [],
-                }
-                if not isinstance(args.get("items"), list):
-                    logger.info("Skipping write_plan (invalid items payload).")
-                    continue
         tool = tool_map.get(name)
         if tool is None:
             continue
@@ -137,6 +152,21 @@ def _run_tool_calling(state: GraphState, db_context: dict[str, Any]) -> dict[str
     return {"tool_calls": tool_calls, "results": results}
 
 
+_CONFIRMATION_FORMATTERS = {
+    "write_plan": lambda d: f"Plan created (plan {d.get('created_plan_id')}).",
+    "add_plan_item": lambda d: f"Plan item added (item {d.get('item_id')}).",
+    "update_item_status": lambda d: f"Status for item {d.get('item_id')} updated to {d.get('status')}.",
+    "update_plan_status": lambda d: f"All items in plan {d.get('plan_id')} updated to {d.get('status')}.",
+    "save_quiz_attempt": lambda d: f"Quiz attempt saved (attempt {d.get('attempt_id')}).",
+    "quiz_post_save": lambda d: (
+        f"Quiz results saved (wrong saved {d.get('saved_wrong')}, deleted correct {d.get('deleted_correct')})."
+    ),
+    "create_flashcard": lambda d: f"Flashcard created (card {d.get('card_id')}).",
+    "update_flashcard_review": lambda d: f"Flashcard {d.get('card_id')} review updated.",
+    "save_message": lambda d: "Message saved.",
+}
+
+
 def _format_tool_result_confirmation(tool_result: dict[str, Any]) -> str | None:
     """If tool results contain a status update or write, return a confirmation message."""
     results = tool_result.get("results") or []
@@ -147,30 +177,9 @@ def _format_tool_result_confirmation(tool_result: dict[str, Any]) -> str | None:
         if not result.get("ok"):
             continue
         data = result.get("data") or {}
-        if name == "write_plan":
-            confirmations.append(f"Plan created (plan {data.get('created_plan_id')}).")
-        elif name == "add_plan_item":
-            confirmations.append(f"Plan item added (item {data.get('item_id')}).")
-        if name == "update_item_status":
-            item_id = data.get("item_id")
-            status = data.get("status")
-            confirmations.append(f"Status for item {item_id} updated to {status}.")
-        elif name == "update_plan_status":
-            plan_id = data.get("plan_id")
-            status = data.get("status")
-            confirmations.append(f"All items in plan {plan_id} updated to {status}.")
-        elif name == "save_quiz_attempt":
-            confirmations.append(f"Quiz attempt saved (attempt {data.get('attempt_id')}).")
-        elif name == "quiz_post_save":
-            confirmations.append(
-                f"Quiz results saved (wrong saved {data.get('saved_wrong')}, deleted correct {data.get('deleted_correct')})."
-            )
-        elif name == "create_flashcard":
-            confirmations.append(f"Flashcard created (card {data.get('card_id')}).")
-        elif name == "update_flashcard_review":
-            confirmations.append(f"Flashcard {data.get('card_id')} review updated.")
-        elif name == "save_message":
-            confirmations.append("Message saved.")
+        formatter = _CONFIRMATION_FORMATTERS.get(name)
+        if formatter:
+            confirmations.append(formatter(data))
     return "\n".join(confirmations) if confirmations else None
 
 
@@ -345,6 +354,12 @@ def _format_db_response(db_context: dict[str, Any]) -> str:
 
 
 def _resolve_plan_ids(plans: list[dict[str, Any]], plan_title: str) -> list[int]:
+    """Find plan IDs matching a title string.
+
+    Uses two-tier matching: exact matches (case-insensitive) are returned first,
+    followed by substring matches where either the query contains the plan title
+    or vice versa.
+    """
     if not plans:
         return []
     lowered = plan_title.lower()

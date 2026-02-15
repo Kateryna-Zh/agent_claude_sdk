@@ -7,6 +7,7 @@ from app.llm.ollama_client import get_chat_model
 from app.models.state import GraphState
 from app.prompts.planner import PLANNER_SYSTEM_PROMPT, PLANNER_USER_PROMPT
 from app.schemas.planner import PlannerOutput
+from app.utils.llm_helpers import invoke_llm
 from app.utils.llm_parse import parse_with_retry
 
 logger = logging.getLogger("uvicorn.error")
@@ -26,7 +27,7 @@ def planner_node(state: GraphState) -> dict:
     dict
         Partial state update with ``specialist_output``.
     """
-    print("PLANNER HIT", flush=True)
+    logger.info("Planner node invoked")
     if state.get("plan_confirmed") and state.get("plan_draft"):
         return {
             "user_response": "Plan confirmed. Saving it now.",
@@ -42,17 +43,15 @@ def planner_node(state: GraphState) -> dict:
 
     llm = get_chat_model()
     logger.info("Planner LLM call started")
-    response = llm.invoke(prompt)
+    content = invoke_llm(prompt, llm)
     logger.info("Planner LLM call finished")
-    content = getattr(response, "content", str(response))
 
     def _retry(raw: str) -> str:
         fix_prompt = (
-            "Fix the JSON to match the required schema. Output ONLY JSON."\
+            "Fix the JSON to match the required schema. Output ONLY JSON."
             f"\nRaw: {raw}"
         )
-        retry_resp = llm.invoke(fix_prompt)
-        return getattr(retry_resp, "content", str(retry_resp))
+        return invoke_llm(fix_prompt, llm)
 
     parsed = parse_with_retry(content, PlannerOutput, _retry)
 

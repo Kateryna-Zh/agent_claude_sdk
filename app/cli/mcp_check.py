@@ -10,6 +10,7 @@ from typing import Any
 
 from app.config import settings
 from app.db.mcp_repository import _inline_params
+from app.db.row_extract import extract_rows as _extract_rows
 from app.mcp.client import extract_payload
 from app.mcp.manager import mcp_manager
 
@@ -27,26 +28,6 @@ def _describe_result(result: Any) -> dict[str, Any]:
     return info
 
 logger = logging.getLogger(__name__)
-
-
-def _extract_rows(payload: Any) -> list[dict[str, Any]]:
-    if payload is None:
-        return []
-    if isinstance(payload, list):
-        return [row for row in payload if isinstance(row, dict)]
-    if isinstance(payload, dict):
-        for key in ("rows", "data", "result", "results"):
-            if key in payload:
-                value = payload[key]
-                if isinstance(value, list):
-                    return [row for row in value if isinstance(row, dict)]
-                if isinstance(value, dict):
-                    nested = _extract_rows(value)
-                    if nested:
-                        return nested
-        if "row" in payload and isinstance(payload["row"], dict):
-            return [payload["row"]]
-    return []
 
 
 async def run_check(message: str, debug: bool, cleanup: bool) -> int:
@@ -67,6 +48,8 @@ async def run_check(message: str, debug: bool, cleanup: bool) -> int:
                     print("tool schema:", t.inputSchema)
                     break
 
+        # Mirrors MCPRepository._execute() parameter handling but is intentionally
+        # duplicated here to test raw MCP connectivity without the repository layer.
         def _args(sql: str, params: list[Any] | None = None) -> dict[str, Any]:
             params = params or []
             if params and not settings.mcp_supports_params:

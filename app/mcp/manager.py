@@ -79,6 +79,12 @@ mcp_manager = MCPManager()
 
 
 def _parse_args(raw: str) -> list[str]:
+    """Parse the MCP server arguments string into a list.
+
+    Uses a comma-vs-space heuristic: if the string contains commas but no
+    spaces it is treated as CSV (e.g. ``"--foo,--bar"``); otherwise it is
+    parsed as a shell command line via ``shlex.split``.
+    """
     if not raw:
         return []
     if "," in raw and " " not in raw:

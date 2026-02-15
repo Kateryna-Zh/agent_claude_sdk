@@ -29,6 +29,10 @@ def load_and_chunk_documents(kb_dir: str) -> list:
         show_progress=True,
     )
     documents = loader.load()
+    # chunk_size=1000 keeps each chunk small enough for the embedding model's
+    # context window while retaining enough surrounding text for coherence.
+    # chunk_overlap=200 ensures continuity across chunk boundaries so that
+    # sentences split at the edge are still retrievable from either chunk.
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
