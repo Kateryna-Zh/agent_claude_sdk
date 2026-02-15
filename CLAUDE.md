@@ -6,33 +6,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Run dev server (auto-reload)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Run dev server with logging
+uv run uvicorn app.main:app --reload --log-level info --access-log
 
 # Run tests
-pytest tests/ -v
-pytest tests/test_router.py -v           # single test file
-pytest tests/test_router.py::test_name -v # single test
-pytest -m integration tests/              # integration tests only (need local services)
+uv run pytest tests/ -v
+uv run pytest tests/test_router.py -v           # single test file
+uv run pytest tests/test_router.py::test_name -v # single test
+uv run pytest -m integration tests/              # integration tests only (need local services)
 
 # Lint
-ruff check app/ tests/
+uv run ruff check app/ tests/
 
 # Ingest knowledge base into ChromaDB
-python scripts/ingest_kb.py              # append
-python scripts/ingest_kb.py --rebuild    # delete & recreate
+uv run python scripts/ingest_kb.py              # append
+uv run python scripts/ingest_kb.py --rebuild    # delete & recreate
 
 # Initialize PostgreSQL schema
 psql -U postgres -d learning_assistant -f db/init.sql
 
 # MCP connectivity check
-python -m app.cli.mcp_check --message "hello" --debug
-python -m app.cli.mcp_check --message "hello" --cleanup   # deletes test rows
+uv run python -m app.cli.mcp_check --message "hello" --debug
+uv run python -m app.cli.mcp_check --message "hello" --cleanup   # deletes test rows
 
 # Interactive chat CLI
-python -m app.cli.chat_cli --url http://127.0.0.1:8000/chat
+uv run python -m app.cli.chat_cli --url http://127.0.0.1:8000/chat
 ```
 
 ## Architecture

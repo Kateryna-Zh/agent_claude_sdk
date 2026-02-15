@@ -1,5 +1,11 @@
 # agent_claude_sdk
 
+## Setup
+
+```bash
+uv sync
+```
+
 ## MCP Checks (Best Practices)
 
 Purpose: Verify MCP server connectivity and DB read/write without relying on agent logic.
@@ -21,11 +27,11 @@ Required env keys:
 Commands:
 - CLI check (read/write):
 ```bash
-python -m app.cli.mcp_check --message "hello from mcp test"
+uv run python -m app.cli.mcp_check --message "hello from mcp test"
 ```
 - CLI check with cleanup:
 ```bash
-python -m app.cli.mcp_check --message "hello from mcp test" --cleanup
+uv run python -m app.cli.mcp_check --message "hello from mcp test" --cleanup
 ```
 - MCP health endpoint:
 ```bash
@@ -40,7 +46,7 @@ Success criteria:
 Troubleshooting:
 - Use `--debug` to print raw MCP payloads and tool schema:
 ```bash
-python -m app.cli.mcp_check --message "hello" --debug
+uv run python -m app.cli.mcp_check --message "hello" --debug
 ```
 - If you see parameter errors, confirm:
   - `MCP_QUERY_KEY=sql`
