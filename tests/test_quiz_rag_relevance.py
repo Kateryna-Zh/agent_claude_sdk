@@ -33,6 +33,11 @@ def _run_quiz_with_relevance(monkeypatch, relevance: str, rag_context: str):
         return dummy
 
     monkeypatch.setattr(quiz_agent, "get_chat_model", _fake_get_chat_model)
+    monkeypatch.setattr(
+        quiz_agent,
+        "invoke_llm",
+        lambda prompt, llm=None: dummy.invoke(prompt).content,
+    )
 
     state = {
         "user_input": "Ruby on Rails",
